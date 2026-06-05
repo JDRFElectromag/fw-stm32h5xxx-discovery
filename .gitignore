@@ -1,0 +1,7 @@
+.history
+Debug/
+__pycache__
+*.log
+.settings
+Binary
+.project
