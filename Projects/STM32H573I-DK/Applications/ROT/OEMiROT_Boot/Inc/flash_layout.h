@@ -28,14 +28,14 @@
 /* OEMiROT/STiROT_OEMuROT configuration */
 /*#define OEMUROT_ENABLE*/         /* Defined: the project is used for STiROT_OEMuROT boot path */
                                    /* Undefined: the project is used for OEMiROT boot path */
-#define MCUBOOT_OVERWRITE_ONLY     /* Defined: the FW installation uses overwrite method.
+/*#define MCUBOOT_OVERWRITE_ONLY*/  /* Defined: the FW installation uses overwrite method.
                                       UnDefined: The FW installation uses swap mode. */
 
 #define MCUBOOT_EXT_LOADER         /* Defined: Use system bootloader (in system flash).
                                                To enter it, press user button at reset.
                                       Undefined: Do not use system bootloader. */
 
-#define MCUBOOT_APP_IMAGE_NUMBER 2      /* 1: S application only if FLASH_NS_PARTITION_SIZE = 0 ,
+#define MCUBOOT_APP_IMAGE_NUMBER 1      /* 1: S application only if FLASH_NS_PARTITION_SIZE = 0 ,
                                               else S and NS application binaries assembled in one single image.
                                            2: Two separated images for S and NS application binaries. */
 
@@ -140,7 +140,7 @@
 #endif /* not OEMUROT_ENABLE */
 
 /* BL2 partitions size */
-#define FLASH_NS_PARTITION_SIZE         (0xA0000) /* 640 KB for NS partition (except for FULL SECURE) */
+#define FLASH_NS_PARTITION_SIZE         (0x0)
 #if (FLASH_NS_PARTITION_SIZE == 0x0)
 #define FLASH_S_PARTITION_SIZE          (0x08000) /* 32 KB for S partition */
 #elif !defined(MCUBOOT_OVERWRITE_ONLY)
