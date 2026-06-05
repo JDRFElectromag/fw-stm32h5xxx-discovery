@@ -94,7 +94,7 @@ s_data_init_xml=$provisioningdir/$bootpath/Images/$project"_S_Data_Init_Image.xm
 #Variables for image xml configuration(ROT_Provisioning/%bootpath%/Images)
 #relative path from ROT_Provisioning/%bootpath%/Images directory to retrieve binary files
 #=============================================================================================
-bin_path_xml_field="../../../Applications/ROT/OEMiROT_Appli/Binary"
+bin_path_xml_field="$project_dir/../Binary"
 fw_in_bin_xml_field="Firmware binary input file"
 fw_out_bin_xml_field="Image output file"
 s_app_bin_xml_field="$bin_path_xml_field/rot_tz_s_app.bin"
@@ -104,6 +104,7 @@ s_data_enc_sign_hex_xml_field="$provisioningdir/$bootpath/Binary/s_data_enc_sign
 s_data_init_sign_hex_xml_field="$provisioningdir/$bootpath/Binary/s_data_init_sign.hex"
 
 #Make sure we have a Binary sub-folder in UserApp folder
+echo $bin_path_xml_field
 if [ ! -e $bin_path_xml_field ]; then
 mkdir $bin_path_xml_field
 fi
