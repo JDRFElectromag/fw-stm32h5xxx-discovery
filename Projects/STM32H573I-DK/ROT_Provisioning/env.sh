@@ -73,7 +73,8 @@ stirot_boot_path_project=Applications/ROT/STiROT_Appli
 #oemirot_appli_path_project=Templates/ROT/OEMiROT_Appli
 #oemirot_appli_path_project=Applications/ROT/OEMiROT_Appli
 #oemirot_appli_path_project=Templates/ROT/OEMiROT_Appli_TrustZone
-oemirot_appli_path_project=Applications/ROT/OEMiROT_Appli_TrustZone
+# oemirot_appli_path_project=Applications/ROT/OEMiROT_Appli_TrustZone
+oemirot_appli_path_project=Applications/ROT/OEMiROT_Appli
 #==============================================================================
 
 #==============================================================================
