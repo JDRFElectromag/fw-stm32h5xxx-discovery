@@ -18,7 +18,7 @@ obkey_programming_log="obkey_programming.log"
 provisioning_log="provisioning.log"
 
 # Initial configuration
-connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
+connect_no_reset="${JLINK_CONNECT_NO_RESET_PARAMS}"
 
 flash_layout="$cube_fw_path/Projects/STM32H573I-DK/${oemirot_boot_path_project}/Inc/flash_layout.h"
 
@@ -32,7 +32,6 @@ ns_data_init_xml=$project_dir"/Images/OEMiROT_NS_Data_Init_Image.xml"
 
 # Initial configuration
 product_state=OPEN
-connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
 
 # Check if Python is installed
 python3 --version >/dev/null 2>&1

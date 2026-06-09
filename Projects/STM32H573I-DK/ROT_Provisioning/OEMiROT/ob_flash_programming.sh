@@ -27,8 +27,8 @@ one_code_image=$oemirot_appli_assembly_sign
 s_data_image="s_data_init_sign.hex"
 ns_data_image="ns_data_init_sign.hex"
 
-connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
-connect_reset="-c port=SWD speed=fast ap=1 mode=UR"
+connect_no_reset="${JLINK_CONNECT_NO_RESET_PARAMS}"
+connect_reset="${JLINK_CONNECT_RESET_PARAMS}"
 
 if [ $isGeneratedByCubeMX == "true" ]; then
    appli_dir=$oemirot_appli_path_project
@@ -117,12 +117,12 @@ fi
 if [ "$s_data_image_number" == "1" ]; then
     action="Write Secure Data"
     echo "$action"
-    
+
     if [ ! -f "$rot_provisioning_path/OEMiROT/Binary/$s_data_image" ]; then
         echo "Error: s_data_enc_sign.hex does not exist! use TPC to generate it"
         error
     fi
-    
+
     "$stm32programmercli" $connect_no_reset -d "$rot_provisioning_path/OEMiROT/Binary/$s_data_image" -v
     if [ $? -ne 0 ]; then error; return 1; fi
 fi
