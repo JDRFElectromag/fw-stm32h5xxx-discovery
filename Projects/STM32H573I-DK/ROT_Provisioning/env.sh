@@ -33,6 +33,10 @@ else
   exit 1
 fi
 
+JLINK_CONNECT_BASE_PARAM="-c port=JLINK ap=0 mode=UR freq=4000 speed=Reliable "
+JLINK_CONNECT_NO_RESET_PARAMS="${JLINK_CONNECT_BASE_PARAM}"
+JLINK_CONNECT_RESET_PARAMS="${JLINK_CONNECT_BASE_PARAM} reset=HWrst -hardRst"
+
 #=================================================================================================
 # Managing HOST OS diversity : end
 #=================================================================================================
