@@ -16,9 +16,11 @@ obkey_programming="obkey_programming.sh"
 ob_flash_log="ob_flash_programming.log"
 obkey_programming_log="obkey_programming.log"
 provisioning_log="provisioning.log"
+echo "" > ${provisioning_log}
 
 # Initial configuration
 connect_no_reset="${JLINK_CONNECT_NO_RESET_PARAMS}"
+connect_reset="${JLINK_CONNECT_RESET_PARAMS}"
 
 flash_layout="$cube_fw_path/Projects/STM32H573I-DK/${oemirot_boot_path_project}/Inc/flash_layout.h"
 
@@ -109,7 +111,7 @@ connect_boot0()
   echo "       (STM32H573I-DK: set SW1 to position 1)"
   echo "       Press any key to continue..."
   echo
-  if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
+  read -p "" -n1 -s;
   provisioning_step
 }
 
@@ -119,7 +121,7 @@ disconnect_boot0()
   echo "       (STM32H573I-DK: set SW1 to position 0)"
   echo "       Press any key to continue..."
   echo
-  if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
+  read -p "" -n1 -s;
 }
 
 # Provisioning execution
@@ -320,23 +322,33 @@ fi
 echo "Step 3 : Provisioning"
 
 # ================================================ Mass erase and reset to defaults FIRST ==================================================
-action="Mass erase and remove all protections (reset to factory defaults)"
-current_log_file=$provisioning_log
-echo "   * $action"
-remove_protect_init="-ob SECWM1_STRT=1 SECWM1_END=0 WRPSGn1=0xffffffff WRPSGn2=0xffffffff SECWM2_STRT=1 SECWM2_END=0 HDP1_STRT=1 HDP1_END=0 HDP2_STRT=1 HDP2_END=0 SECBOOT_LOCK=0xC3 SWAP_BANK=0 SRAM2_RST=0 SRAM2_ECC=0 BOOT_UBE=0xB4 TZEN=0xC3"
-"$stm32programmercli" $connect_reset $remove_protect_init -e all >> $provisioning_log
-if [ $? -ne 0 ]; then
-  echo "Error during mass erase and protection removal"
-  step_error
-fi
-echo "       Board reset to factory defaults"
-echo
+# action="Mass erase and remove all protections (reset to factory defaults)"
+# current_log_file=$provisioning_log
+# echo "   * $action"
+
+# # Step 1: Connect and mass erase to clear any existing protections
+# echo "       Performing mass erase..."
+# "$stm32programmercli" $connect_reset -e all >> $provisioning_log
+# if [ $? -ne 0 ]; then
+#   echo "Error during mass erase"
+#   step_error
+# fi
+
+# # Step 2: Reset option bytes to safe defaults (disable watermarks, disable TZ, unlock boot)
+# echo "       Resetting option bytes to defaults..."
+# "$stm32programmercli" $connect_no_reset -ob TZEN=0xC3 SECBOOT_LOCK=0xC3 >> $provisioning_log
+# if [ $? -ne 0 ]; then
+#   echo "Warning: Some option bytes may not have been reset"
+# fi
+
+# echo "       Board reset to factory defaults"
+# echo
 
 echo "   * BOOT0 pin should be connected to VDD"
 echo "       (STM32H573I-DK: set SW1 to position 1)"
 echo "       Press any key to continue..."
 echo
-if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
+read -p "" -n1 -s;
 
 # ================================================ OBKeys programming ===================================================================
 action="Provisionning the OBKeys ..."
@@ -354,7 +366,7 @@ echo "   * BOOT0 pin should be disconnected from VDD"
 echo "       (STM32H573I-DK: set SW1 to position 0)"
 echo "       Press any key to continue..."
 echo
-if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
+read -p "" -n1 -s;
 
 # ================================================ Flash programming and option bytes ===================================================
 action="Flashing images and programming option bytes ..."
