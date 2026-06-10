@@ -1,7 +1,8 @@
-import sys
 import subprocess
-import shutil
+import tempfile
 from pathlib import Path
+
+from intelhex import IntelHex
 
 # Configuration
 SCRIPT_DIR = Path(__file__).parent
@@ -13,23 +14,21 @@ DEVICE = "STM32H573IIKxQ"
 INTERFACE = "SWD"
 SPEED = "4000"
 
-OEMIROT_BOOT_BIN = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Boot/Binary/OEMiROT_Boot.bin"
-APPLI_DIR = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli"
-DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk"
-OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk"
-OEMIROT_DATA_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Data.obk"
+OEMIROT_BOOT_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Boot/Binary/OEMiROT_Boot.hex"
+ROT_TZ_S_APP_INIT_SIGN_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli/Binary/rot_tz_s_app_init_sign.hex"
+DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certs
+OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Enc and auth keys default too. never updated them.
 
 JLINK_EXE = "JLinkExe"
 DEVPRO_EXE = "DevProExe"
 DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex"
 
-def print_error(msg):
-    print(f"ERROR: {msg}")
-
 def run_jlink_script(script_name, action_str):
-    script_path = JLINK_SCRIPTS_DIR / script_name
-    print(action_str)
+    script_path = Path(script_name)
+    if not script_path.is_absolute():
+        script_path = JLINK_SCRIPTS_DIR / script_path
 
+    print(action_str)
     cmd = [
         JLINK_EXE,
         "-device", DEVICE,
@@ -38,24 +37,35 @@ def run_jlink_script(script_name, action_str):
         "-autoconnect", "1",
         "-CommandFile", str(script_path)
     ]
+    subprocess.run(cmd, check=True)
+    print("DONE")
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode != 0 or "Cannot connect" in result.stdout or "Failed" in result.stdout:
-            print_error("J-Link command failed")
-            print(result.stdout)
-            if result.stderr:
-                print(result.stderr)
-            return False
+def generate_jlink_flash_script(output_dir, image_file):
+    output_dir = Path(output_dir)
+    script_content = [
+        "connect",
+        "reset"
+        "halt",
+        f"loadfile {image_file}",
+        "exit",
+    ]
+    script_path = output_dir / "flash_images.jlink"
+    with open(script_path, 'w') as f:
+        f.write('\n'.join(script_content))
 
-        print("DONE")
-        return True
-    except subprocess.TimeoutExpired:
-        print_error(f"Timeout executing {script_name}")
-        return False
-    except Exception as e:
-        print_error(f"Error executing {script_name}: {e}")
-        return False
+    print(f"Generated flash programming script: {script_path}")
+    return script_path
+
+
+def merge_hex_images(boot_hex_file, app_hex_file, output_hex_file):
+    for required_file in (boot_hex_file, app_hex_file):
+        if not required_file.exists():
+            raise FileNotFoundError(f"Missing required firmware image: {required_file}")
+
+
+
+    print(f"Merged HEX generated: {output_hex_file}")
+
 
 def run_devpro_operation(operation, config_vals=None):
     cmd = [
@@ -65,228 +75,82 @@ def run_devpro_operation(operation, config_vals=None):
         "-speed", SPEED,
         "-ScriptFile", DEVPRO_SCRIPT,
     ]
-
     if config_vals:
         for key, value in config_vals.items():
             cmd.extend(["-SetConfigVal", f"{key}={value}"])
+    subprocess.run(cmd, check=True)
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            print_error(f"DevPro operation failed: {operation}")
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(result.stderr)
-            return False
-        return True
-    except subprocess.TimeoutExpired:
-        print_error(f"Timeout executing DevPro operation: {operation}")
-        return False
-    except Exception as e:
-        print_error(f"Error executing DevPro operation {operation}: {e}")
-        return False
+def program_obkeys():
+    # Option Byte Key
+    print("Discovering product state...")
+    run_devpro_operation("DbgAuthDiscover")
 
-def program_obkeys_with_devpro():
-    print("Discovering product state (DevPro)")
-    if not run_devpro_operation("DbgAuthDiscover"):
-        return False
-
-    print("Setting product state to PROVISIONING (DevPro)")
-    if not run_devpro_operation(DEVPRO_EXE, "SetDeviceState", {"ProdState": "PROVISIONING"}):
-        return False
+    # State required to program OBKs can't do it in OPEN and other state
+    # debugger can't access things.
+    print("Setting product state to PROVISIONING")
+    run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
 
     obk_files = [
         DA_OBKEY,
         OEMIROT_CONFIG_OBKEY,
-        OEMIROT_DATA_OBKEY,
     ]
 
     for obk_file in obk_files:
         print(f"Provisioning OBK with DevPro: {obk_file}")
-        if not run_devpro_operation(DEVPRO_EXE, "DbgAuthProvision", {"DataFile": str(obk_file)}):
-            return False
+        run_devpro_operation("DbgAuthProvision", {"DataFile": str(obk_file)})
 
-    return True
-
-def generate_option_bytes_script():
+def program_ob():
+    # Option Bytes. DO NOT MIXUP with OBK (ST bad at naming stuff)
+    # This just the default OB + min changes needed to use the OEMiROT boot path.
+    # My intention here is not to explian each bit just read the refManual or use
+    # STMCubeMX tool to understand each.
     ob_config = {
-        "0x40022050": "0xB4FF00FF",
-        "0x40022080": "0xC0000000",
-        "0x400220E0": "0x00170000",
-        "0x400221E0": "0x0000007F",
-        "0x40022070": "0xFFFFFFF8",
-        "0x40022170": "0xFFFFFFFF",
-        "0x400220F0": "0x00130000",
-        "0x400221F0": "0x0000007F",
-        "0x40022090": "0xB4FF00FF",
-        "0x400220C0": "0xED0000FF",
+        #
+        "FLASH_OPTSR": "0xB4FF00FF", # Flash Option Status Register (main control) TZEN=1
+        "FLASH_OPTSR2": "0xC0000000", # Flash Option Status Register 2
+        "FLASH_SECWM1R": "0x00170000", # Security Watermark 1 for Bank 1
+         "FLASH_SECWM2R": "0x0000007F", # Security Watermark 2 for Bank 2
+        "FLASH_NSBOOTR": "0xFFFFFFF8", # Non-Secure Boot Register, we have no NS app running.
+        "FLASH_SECBOOTR": "0xFFFFFFFF", # Secure Boot Register
+        "FLASH_WRP1R": "0x00130000", # Write Protection Register 1 for Bank 1
+        "FLASH_WRP2R": "0x0000007F", # Write Protection Register 2 for Bank 2
+        "FLASH_OTPBLR": "0xB4FF00FF", # OTP Block Lock Register
+        "FLASH_HDP1R": "0xED0000FF", #  Hidden Debug Port Bank 1
     }
 
-    script_content = [
-        "// Option Bytes Programming Script",
-        "// Generated by provision_jlink.py",
-        "",
-        "// Connect to device",
-        "connect",
-        "",
-        "// Unlock option bytes",
-        "w4 0x40022008 0x08192A3B",
-        "w4 0x40022008 0x4C5D6E7F",
-        "",
-        "// Wait for option bytes unlock",
-        "sleep 100",
-        "",
-        "// Write option bytes to option byte registers",
-    ]
+    for option_name, value in ob_config.items():
+        print(f"Writing option byte: {option_name} = {value}")
+        run_devpro_operation("WriteOptionBytes", {"OptionName": option_name, "Value": value})
 
-    for addr, value in ob_config.items():
-        script_content.append(f"w4 {addr} {value}")
+def program_firmware():
+    with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
+        temp_path = Path(temp_dir)
+        boot_hex = IntelHex(OEMIROT_BOOT_HEX)
+        app_hex = IntelHex(ROT_TZ_S_APP_INIT_SIGN_HEX)
+        print(f"Merging {OEMIROT_BOOT_HEX.name} + {OEMIROT_BOOT_HEX.name}")
+        merged_hex = IntelHex()
+        merged_hex.merge(boot_hex)
+        merged_hex.merge(app_hex)
+        merged_hex = temp_path / "merged_oemirot.hex"
+        merged_hex.write_hex_file(merged_hex)
 
-    script_content.extend([
-        "",
-        "// Start option bytes programming",
-        "w4 0x40022004 0x00020000",
-        "",
-        "// Wait for programming to complete",
-        "sleep 1000",
-        "",
-        "// Lock option bytes",
-        "w4 0x40022004 0x40000000",
-        "",
-        "// Reset to apply option bytes",
-        "r",
-        "sleep 500",
-        "",
-        "exit"
-    ])
+        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=merged_hex)
+        run_jlink_script(script_path, "Programming merge hex file...")
 
-    script_path = JLINK_SCRIPTS_DIR / "set_option_bytes.jlink"
-    with open(script_path, 'w') as f:
-        f.write('\n'.join(script_content))
-
-    print(f"Generated option bytes script: {script_path}")
 
 def main():
     input("Set BOOT0=1. Press Enter to continue...")
-    if not program_obkeys_with_devpro(DEVPRO_EXE):
-        print_error("OBK provisioning failed with DevPro")
-        sys.exit(1)
-
+    program_obkeys()
     print("OBK provisioning complete")
 
-    print("STEP 3: Set BOOT0=0")
-    input("Please disconnect BOOT0 from VDD (STM32H573I-DK: set SW1 to position 0). Press Enter to continue...")
+    input("Set BOOT0=0. Press Enter to continue...")
+    program_firmware()
 
-    print("STEP 4: Reset & Halt MCU")
-    if not run_jlink_script("reset_halt.jlink", "Resetting and halting MCU"):
-        print_error("Failed to reset and halt MCU")
-        sys.exit(1)
+    print("Program Option Bytes")
+    program_ob()
 
-    print("STEP 5: Program Bootloader and Application")
-    generate_flash_script()
-    if not run_jlink_script("flash_images.jlink", "Programming bootloader and application"):
-        print_error("Failed to program flash images")
-        sys.exit(1)
-
-    print("STEP 6 & 7: Program Option Bytes and Product State")
-    generate_option_bytes_script()
-    if not run_jlink_script("set_option_bytes.jlink", "Programming option bytes and product state"):
-        print_error("Failed to program option bytes")
-        sys.exit(1)
-
-    print("Provisioning Complete")
-    print("The board is correctly configured.")
-    print("Connect UART console (115200 baudrate) to get application menu.")
-
-def generate_flash_script():
-    img_config_path = OEMIROT_DIR / "img_config.sh"
-    app_image_number = 1
-    app_full_secure = False
-
-    if img_config_path.exists():
-        with open(img_config_path, 'r') as f:
-            content = f.read()
-            if 'app_image_number=2' in content:
-                app_image_number = 2
-            if 'app_full_secure=1' in content:
-                app_full_secure = True
-
-    script_content = [
-        "// Flash Programming Script",
-        "// Generated by provision_jlink.py",
-        "",
-        "// Connect to device",
-        "connect",
-        "",
-        "// Halt CPU",
-        "halt",
-        "",
-    ]
-
-    boot_addr = "0x0C000000"
-    if OEMIROT_BOOT_BIN.exists():
-        script_content.append(f"// Program OEMiROT_Boot at {boot_addr}")
-        script_content.append(f"loadbin {OEMIROT_BOOT_BIN} {boot_addr}")
-        script_content.append("")
-    else:
-        print_error(f"Bootloader binary not found: {OEMIROT_BOOT_BIN}")
-
-    if app_image_number == 1:
-        if app_full_secure:
-            app_hex = APPLI_DIR / "Binary/rot_tz_s_app_init_sign.hex"
-        else:
-            app_hex = APPLI_DIR / "Binary/rot_tz_app_init_sign.hex"
-
-        if app_hex.exists():
-            script_content.append(f"// Program Application")
-            script_content.append(f"loadfile {app_hex}")
-            script_content.append("")
-        else:
-            print_error(f"Application hex not found: {app_hex}")
-    else:
-        s_app_hex = APPLI_DIR / "Binary/rot_tz_s_app_init_sign.hex"
-        ns_app_hex = APPLI_DIR / "Binary/rot_tz_ns_app_init_sign.hex"
-
-        if s_app_hex.exists():
-            script_content.append(f"// Program Secure Application")
-            script_content.append(f"loadfile {s_app_hex}")
-            script_content.append("")
-        else:
-            print_error(f"Secure application hex not found: {s_app_hex}")
-
-        if ns_app_hex.exists():
-            script_content.append(f"// Program Non-Secure Application")
-            script_content.append(f"loadfile {ns_app_hex}")
-            script_content.append("")
-        else:
-            print_error(f"Non-secure application hex not found: {ns_app_hex}")
-
-    script_content.extend([
-        "// Verify programming",
-        "verifybin {OEMIROT_BOOT_BIN} {boot_addr}",
-        "",
-        "exit"
-    ])
-
-    script_text = '\n'.join(script_content)
-    script_text = script_text.replace('{OEMIROT_BOOT_BIN}', str(OEMIROT_BOOT_BIN))
-    script_text = script_text.replace('{boot_addr}', boot_addr)
-
-    script_path = JLINK_SCRIPTS_DIR / "flash_images.jlink"
-    with open(script_path, 'w') as f:
-        f.write(script_text)
-
-    print(f"Generated flash programming script: {script_path}")
+    print("Setting product state to OPEN")
+    run_devpro_operation("SetDeviceState", {"ProdState": "OPEN"})
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nProvisioning aborted by user")
-        sys.exit(1)
-    except Exception as e:
-        print_error(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    main()
