@@ -1,4 +1,3 @@
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,19 +23,33 @@ JLINK_EXE = "JLinkExe"
 DEVPRO_EXE = "DevProExe"
 DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex"
 
+import subprocess
+
 def subproc_run(cmd) -> str:
-    result = subprocess.run(
+    process = subprocess.Popen(
         cmd,
-        check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,  # line-buffered
     )
-    if result.stdout:
-        print(result.stdout)
-        return result.stdout
-    else:
-        return ""
+
+    output_lines = []
+
+    for line in process.stdout:
+        print(line, end="")  # real-time logging
+        output_lines.append(line)
+
+        if "error" in line.casefold():
+            process.kill()
+            raise RuntimeError("ERROR Found in JLINK script")
+
+    process.wait()
+
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd)
+
+    return "".join(output_lines)
 
 def run_jlink_script(script_name, action_str):
     script_path = Path(script_name)
@@ -54,14 +67,15 @@ def run_jlink_script(script_name, action_str):
     ]
     return subproc_run(cmd)
 
-def generate_jlink_flash_script(output_dir, image_file):
+def generate_jlink_flash_script(output_dir, image_file, reset_board=False):
     output_dir = Path(output_dir)
     script_content = [
         "connect",
-        "reset",
+        "reset" if reset_board else  "",
         "halt",
         f"loadfile {image_file}",
-        "exit",
+        "halt", # Must stay halted after this.
+        "exit"
     ]
     script_path = output_dir / "flash_images.jlink"
     with open(script_path, 'w') as f:
@@ -99,11 +113,6 @@ def program_obkeys():
     print("Discovering product state...")
     run_devpro_operation("DbgAuthDiscover")
 
-    # State required to program OBKs can't do it in OPEN and other state
-    # debugger can't access things.
-    print("Setting product state to PROVISIONING")
-    run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
-
     obk_files = [
         DA_OBKEY,
         OEMIROT_CONFIG_OBKEY,
@@ -125,36 +134,40 @@ def pack_start_end(start: int, end: int) -> int:
     return ((end & 0xFF) << 16) | (start & 0xFF)
 
 def pack_secboot(lock: int, secbootadd: int) -> int:
-    # DevPro exposes only FLASH_SECBOOTR writes, so pack SECBOOT_LOCK + SECBOOTADD.
     return ((lock & 0xFF) << 24) | (secbootadd & 0x00FFFFFF)
 
 def program_option_bytes() -> None:
-    # Mirrors the option-byte intent from ob_flash_programming.sh
-    # 1) Set TZEN = 1
-    write_ob("FLASH_OPTSR", 0xB4FF00FF)
+    # Program the min set of OB for bootpath to work.
+    # Expect factory default option bytes to exist as
+    # i don't program all values
 
-    # 2) Remove protections (erase-all step in STM32_Programmer_CLI is not part of DevPro OptionByte ops)
-    write_ob("FLASH_SECWM1R", pack_start_end(0x01, 0x00))
-    write_ob("FLASH_SECWM2R", pack_start_end(0x01, 0x00))
-    write_ob("FLASH_WRP1R", 0xFFFFFFFF)
-    write_ob("FLASH_WRP2R", 0xFFFFFFFF)
-    write_ob("FLASH_HDP1R", pack_start_end(0x01, 0x00))
-    write_ob("FLASH_HDP2R", pack_start_end(0x01, 0x00))
-    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0x000000))
+    # This register control alot, including product state,
+    # even though JLINK has a discrete command for product state
+    # we can set it through this register. The setup is decoded below
+    write_ob("FLASH_OPTSR", 0x2D30EDF8) # Factory default if I don't program this someone R2 doesn't stick. -_-
 
-    # 3) Set SecureBoot address
-    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0x0C0000))
+    """
+    SRAM1_3_RST: Value: 0x00000001 -> SRAM1 and SRAM3 not erased when a system reset occurs
+    SRAM3_ECC: Value: 0x00000001 -> SRAM3 ECC check disabled
+    USBPD_DIS: Value: 0x00000000 -> Enabled
+    SRAM2_RST: Value: 0x00000000 -> SRAM2 erased when a system reset occurs
+    BKPRAM_ECC: Value: 0x00000001 -> BKPRAM ECC check disabled
+    SRAM2_ECC: Value: 0x00000000 -> SRAM2 ECC check enabled
+    TZEN: Value: 0x000000B4 -> TrustZone enabled
+    """
+    write_ob("FLASH_OPTSR2", 0xB4000034)
 
-    # 4) Configure secure watermark
+    # Configure secure watermark
     write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x17))
     write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
 
-    # 5) Final hardening: WRP + HDP + boot lock
+    # Final hardening: WRP + HDP + boot address
     write_ob("FLASH_WRP1R", 0xFFFFFFF8)
     write_ob("FLASH_WRP2R", 0xFFFFFFFF)
+
     write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x13))
     write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
-    write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0x0C0000))
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0x0C0000)) #Address of secure boot + lock the register
 
 def program_firmware():
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
@@ -168,23 +181,41 @@ def program_firmware():
         merged_hex_path = temp_path / "merged_oemirot.hex"
         merged_hex.write_hex_file(str(merged_hex_path))
 
-        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=merged_hex_path)
+        # After this the baord core should never run
+        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=merged_hex_path, reset_board=True)
         run_jlink_script(script_path, "Programming merge hex file...")
 
 
 def main():
+    # Use STCubeProgrammer to reset to factory defaults.
+    # If device is provisioned already you better have password
+    # or certicate to get Debugger access otherwise device is bricked
+    # print("Expect a fresh device with all factory default values")
+
+    input("Set BOOT0=0. Press Enter to continue...")
+
+    print("Program Firmware")
+    program_firmware()
+
+    print("Program Option Bytes, but leave debugger access open")
+    program_option_bytes()
+
+    # To program OBK we need to move to PROVISIONING state
+    print("Setting product state to PROVISIONING")
+    run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
+
     input("Set BOOT0=1. Press Enter to continue...")
     program_obkeys()
     print("OBK provisioning complete")
 
-    input("Set BOOT0=0. Press Enter to continue...")
-    program_firmware()
+    input("Set BOOT0=0. To Boot from main flash and power cycle board")
 
-    print("Program Option Bytes")
-    program_option_bytes()
+    # At this point the bootloader should transitation the option bytes
+    # to fianl most secure state as well as product state.
+    # The debugger can't applies these all atomatically and some option byte
+    # can cause the debugger to loose acccess as well as product state transition.
+    # TODO test programming OB again for better lock down and settting ProdState alst
 
-    print("Setting product state to OPEN")
-    run_devpro_operation("SetDeviceState", {"ProdState": "OPEN"})
 
 if __name__ == "__main__":
     main()
