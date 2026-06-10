@@ -157,6 +157,10 @@ else
     s_main="$appli_dir/Secure/Inc/main.h"
 fi
 
+# ============================================================ JDRF additional changes ====================================================
+# copy hex file over IDE should generate it not done by defualt
+cp -f ${config}/OEMiROT_Boot.hex ../Binary
+
 # ============================================================ Update %map_properties% ===============================================================
 $python$applicfg flash --layout $preprocess_bl2_file -b S_CODE_REGION_START -m RE_ADDRESS_SECURE_START $map_properties --vb >> $current_log_file 2>&1
 if [ $? != 0 ]; then error; fi
