@@ -6,19 +6,19 @@ source img_config.sh
 
 script_error_file="error"
 sec1_start=0
-sec1_end=0x17
+sec1_end=0xE
 sec2_start=0x7F
 sec2_end=0x0
 wrpgrp1=0xFFFFFFF8
 wrpgrp2=0xFFFFFFFF
 hdp1_start=0
-hdp1_end=0x13
+hdp1_end=0xB
 hdp2_start=0x7F
 hdp2_end=0x0
 boot_lck=0xB4
 bootaddress=0xC000000
 bootob=0xC0000
-app_image_number=1
+app_image_number=2
 s_data_image_number=0
 ns_data_image_number=0
 s_code_image=$oemirot_appli_secure
@@ -27,8 +27,8 @@ one_code_image=$oemirot_appli_assembly_sign
 s_data_image="s_data_init_sign.hex"
 ns_data_image="ns_data_init_sign.hex"
 
-connect_no_reset="${JLINK_CONNECT_NO_RESET_PARAMS}"
-connect_reset="${JLINK_CONNECT_RESET_PARAMS}"
+connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
+connect_reset="-c port=SWD speed=fast ap=1 mode=UR"
 
 if [ $isGeneratedByCubeMX == "true" ]; then
    appli_dir=$oemirot_appli_path_project
@@ -58,7 +58,30 @@ error()
   return 1
 }
 
-# =============================================== Flash Programming (mass erase already done in provisioning.sh) ==========================
+# =============================================== Configure Option Bytes ====================================================================
+action="Set TZEN = 1"
+echo "$action"
+# Trust zone enabled is mandatory in order to execute OEM-iRoT
+"$stm32programmercli" $connect_no_reset -ob TZEN=0xB4
+if [ $? -ne 0 ]; then error; return 1; fi
+
+action="Remove Protection and erase All"
+echo "$action"
+"$stm32programmercli" $connect_reset
+"$stm32programmercli" $connect_reset $remove_protect_init $erase_all
+if [ $? -ne 0 ]; then error; return 1; fi
+
+action="Set SecureBoot address"
+echo "$action"
+"$stm32programmercli" $connect_reset
+"$stm32programmercli" $connect_reset -ob SECBOOTADD=$bootob
+if [ $? -ne 0 ]; then error; return 1; fi
+
+action="Configure Secure Water Mark"
+echo "$action"
+"$stm32programmercli" $connect_no_reset -ob $sec_water_mark
+if [ $? -ne 0 ]; then error; return 1; fi
+
 # ==================================================== Download images ====================================================================
 echo "Application images programming in download slots"
 
@@ -94,12 +117,12 @@ fi
 if [ "$s_data_image_number" == "1" ]; then
     action="Write Secure Data"
     echo "$action"
-
+    
     if [ ! -f "$rot_provisioning_path/OEMiROT/Binary/$s_data_image" ]; then
         echo "Error: s_data_enc_sign.hex does not exist! use TPC to generate it"
         error
     fi
-
+    
     "$stm32programmercli" $connect_no_reset -d "$rot_provisioning_path/OEMiROT/Binary/$s_data_image" -v
     if [ $? -ne 0 ]; then error; return 1; fi
 fi
@@ -123,14 +146,14 @@ echo "$action"
 if [ $? -ne 0 ]; then error; return 1; fi
 echo "OEMiROT_Boot Written"
 
-# ======================================================= Configure ALL Option Bytes at the end ============================================
-action="Configure ALL option bytes in single shot"
-echo "$action"
-echo "Setting: TZEN, SECBOOTADD, SECWM, WRP, HDP, SECBOOT_LOCK, PRODUCT_STATE"
 
-# Set all option bytes AND product state in ONE command to avoid J-Link disconnect causing MCU to reboot.
-"$stm32programmercli" $connect_no_reset -ob TZEN=0xB4 SECBOOTADD=$bootob $sec_water_mark $write_protect $hide_protect $boot_lock PRODUCT_STATE=0xED
-if [ $? -ne 0 ]; then echo "Warning: Option bytes programming returned error"; error; return 1; fi
+# ======================================================= Extra board protections =========================================================
+action="Configure Option Bytes"
+echo "$action"
+echo "Configure Secure option Bytes: Write Protection, Hide Protection and boot lock"
+
+"$stm32programmercli" $connect_no_reset -ob $write_protect $hide_protect $boot_lock
+if [ $? -ne 0 ]; then error; return 1; fi
 
 echo "Programming success"
 if [ "$script_mode" != "AUTO" ]; then $SHELL;  fi

@@ -2,8 +2,8 @@
 source ../env.sh
 
 script_error_file="error"
-connect_no_reset="${JLINK_CONNECT_NO_RESET_PARAMS}"
-connect_reset="${JLINK_CONNECT_RESET_PARAMS}"
+connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
+connect_reset="-c port=SWD speed=fast ap=1 mode=Hotplug -hardRst"
 if [ $# -ge 1 ]; then script_mode=$1; else script_mode=MANUAL; fi
 
 error()
@@ -38,4 +38,4 @@ if [ $? -ne 0 ]; then error; return 1; fi
 echo "Provisioning success"
 if [ "$script_mode" != "AUTO" ]; then $SHELL; fi
 
-return
+return 

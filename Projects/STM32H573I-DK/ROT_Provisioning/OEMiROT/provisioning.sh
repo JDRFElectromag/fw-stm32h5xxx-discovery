@@ -16,11 +16,9 @@ obkey_programming="obkey_programming.sh"
 ob_flash_log="ob_flash_programming.log"
 obkey_programming_log="obkey_programming.log"
 provisioning_log="provisioning.log"
-echo "" > ${provisioning_log}
 
 # Initial configuration
-connect_no_reset="${JLINK_CONNECT_NO_RESET_PARAMS}"
-connect_reset="${JLINK_CONNECT_RESET_PARAMS}"
+connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
 
 flash_layout="$cube_fw_path/Projects/STM32H573I-DK/${oemirot_boot_path_project}/Inc/flash_layout.h"
 
@@ -34,6 +32,7 @@ ns_data_init_xml=$project_dir"/Images/OEMiROT_NS_Data_Init_Image.xml"
 
 # Initial configuration
 product_state=OPEN
+connect_no_reset="-c port=SWD speed=fast ap=1 mode=Hotplug"
 
 # Check if Python is installed
 python3 --version >/dev/null 2>&1
@@ -111,7 +110,7 @@ connect_boot0()
   echo "       (STM32H573I-DK: set SW1 to position 1)"
   echo "       Press any key to continue..."
   echo
-  read -p "" -n1 -s;
+  if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
   provisioning_step
 }
 
@@ -121,7 +120,7 @@ disconnect_boot0()
   echo "       (STM32H573I-DK: set SW1 to position 0)"
   echo "       Press any key to continue..."
   echo
-  read -p "" -n1 -s;
+  if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
 }
 
 # Provisioning execution
@@ -320,65 +319,23 @@ else
 fi
 # ========================================================= Board provisioning steps =======================================================
 echo "Step 3 : Provisioning"
-
-# ================================================ Mass erase and reset to defaults FIRST ==================================================
-# action="Mass erase and remove all protections (reset to factory defaults)"
-# current_log_file=$provisioning_log
-# echo "   * $action"
-
-# # Step 1: Connect and mass erase to clear any existing protections
-# echo "       Performing mass erase..."
-# "$stm32programmercli" $connect_reset -e all >> $provisioning_log
-# if [ $? -ne 0 ]; then
-#   echo "Error during mass erase"
-#   step_error
-# fi
-
-# # Step 2: Reset option bytes to safe defaults (disable watermarks, disable TZ, unlock boot)
-# echo "       Resetting option bytes to defaults..."
-# "$stm32programmercli" $connect_no_reset -ob TZEN=0xC3 SECBOOT_LOCK=0xC3 >> $provisioning_log
-# if [ $? -ne 0 ]; then
-#   echo "Warning: Some option bytes may not have been reset"
-# fi
-
-# echo "       Board reset to factory defaults"
-# echo
-
-echo "   * BOOT0 pin should be connected to VDD"
-echo "       (STM32H573I-DK: set SW1 to position 1)"
-echo "       Press any key to continue..."
-echo
-read -p "" -n1 -s;
-
-# ================================================ OBKeys programming ===================================================================
-action="Provisionning the OBKeys ..."
-current_log_file=$obkey_programming_log
-echo "   * $action"
-command="source $obkey_programming AUTO"
-$command > $obkey_programming_log
-obkey_prog_error=$?
-if [ $obkey_prog_error -ne 0 ]; then step_error; fi
-echo "       Successful OBKeys provisioning"
-echo "       (see $obkey_programming_log for details)"
-echo
-
 echo "   * BOOT0 pin should be disconnected from VDD"
 echo "       (STM32H573I-DK: set SW1 to position 0)"
 echo "       Press any key to continue..."
 echo
-read -p "" -n1 -s;
+if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
 
-# ================================================ Flash programming and option bytes ===================================================
-action="Flashing images and programming option bytes ..."
+# ================================================ Option Bytes and flash programming ======================================================
+action="Programming the option bytes and flashing the images ..."
 current_log_file=$ob_flash_log
 command="source $ob_flash_programming AUTO"
 echo "   * $action"
 $command > $ob_flash_log
 ob_flash_error=$?
 if [ $ob_flash_error -ne 0 ]; then step_error; fi
-echo "       Successful flash and option bytes programming"
+echo "       Successful option bytes programming and images flashing"
 echo "       (see $ob_flash_log for details)"
 echo
 
-# ============================================ Done =========================================================================================
-final_execution
+# ============================================ Provisioning and product state modification =================================================
+product_state_choice
