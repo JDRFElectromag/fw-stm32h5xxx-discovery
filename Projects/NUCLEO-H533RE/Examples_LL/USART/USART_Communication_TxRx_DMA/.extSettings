@@ -1,8 +1,0 @@
-[ProjectFiles]
-HeaderPath=
-[Others]
-Define=
-HALModule=EXTI
-[Groups]
-Doc=../README.md;
-
