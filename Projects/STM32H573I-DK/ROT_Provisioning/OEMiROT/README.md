@@ -1,3 +1,9 @@
+# JDRF ReadMe
+
+This repo houses discovery work to do with the STM32H573.
+
+# ST Readme
+
 ## <b>ROT_Provisioning OEMiROT Description</b>
 
 This section provides an overview of the available scripts for OEMiROT boot path.
@@ -63,4 +69,3 @@ For more details, refer to STM32H573 Wiki articles:
 AppliCfg.py (located in Utilities/PC_Software/ROT_AppliConfig) is used during provisioning process.
 It is needed to have python and some python packages installed in your environment.
 Refer to Utilities/PC_Software/ROT_AppliConfig/README.md for more details.
-
