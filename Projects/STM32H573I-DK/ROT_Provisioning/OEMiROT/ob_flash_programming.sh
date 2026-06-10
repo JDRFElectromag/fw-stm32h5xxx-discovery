@@ -58,30 +58,7 @@ error()
   return 1
 }
 
-# =============================================== Configure Option Bytes ====================================================================
-action="Set TZEN = 1"
-echo "$action"
-# Trust zone enabled is mandatory in order to execute OEM-iRoT
-"$stm32programmercli" $connect_no_reset -ob TZEN=0xB4
-if [ $? -ne 0 ]; then error; return 1; fi
-
-action="Remove Protection and erase All"
-echo "$action"
-"$stm32programmercli" $connect_reset
-"$stm32programmercli" $connect_reset $remove_protect_init $erase_all
-if [ $? -ne 0 ]; then error; return 1; fi
-
-action="Set SecureBoot address"
-echo "$action"
-"$stm32programmercli" $connect_reset
-"$stm32programmercli" $connect_reset -ob SECBOOTADD=$bootob
-if [ $? -ne 0 ]; then error; return 1; fi
-
-action="Configure Secure Water Mark"
-echo "$action"
-"$stm32programmercli" $connect_no_reset -ob $sec_water_mark
-if [ $? -ne 0 ]; then error; return 1; fi
-
+# =============================================== Flash Programming (mass erase already done in provisioning.sh) ==========================
 # ==================================================== Download images ====================================================================
 echo "Application images programming in download slots"
 
@@ -146,14 +123,14 @@ echo "$action"
 if [ $? -ne 0 ]; then error; return 1; fi
 echo "OEMiROT_Boot Written"
 
-
-# ======================================================= Extra board protections =========================================================
-action="Configure Option Bytes"
+# ======================================================= Configure ALL Option Bytes at the end ============================================
+action="Configure ALL option bytes in single shot"
 echo "$action"
-echo "Configure Secure option Bytes: Write Protection, Hide Protection and boot lock"
+echo "Setting: TZEN, SECBOOTADD, SECWM, WRP, HDP, SECBOOT_LOCK, PRODUCT_STATE"
 
-"$stm32programmercli" $connect_no_reset -ob $write_protect $hide_protect $boot_lock
-if [ $? -ne 0 ]; then error; return 1; fi
+# Set all option bytes AND product state in ONE command to avoid J-Link disconnect causing MCU to reboot.
+"$stm32programmercli" $connect_no_reset -ob TZEN=0xB4 SECBOOTADD=$bootob $sec_water_mark $write_protect $hide_protect $boot_lock PRODUCT_STATE=0xED
+if [ $? -ne 0 ]; then echo "Warning: Option bytes programming returned error"; error; return 1; fi
 
 echo "Programming success"
 if [ "$script_mode" != "AUTO" ]; then $SHELL;  fi

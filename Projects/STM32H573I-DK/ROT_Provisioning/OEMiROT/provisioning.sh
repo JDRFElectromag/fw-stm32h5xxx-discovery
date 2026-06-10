@@ -318,23 +318,55 @@ else
 fi
 # ========================================================= Board provisioning steps =======================================================
 echo "Step 3 : Provisioning"
+
+# ================================================ Mass erase and reset to defaults FIRST ==================================================
+action="Mass erase and remove all protections (reset to factory defaults)"
+current_log_file=$provisioning_log
+echo "   * $action"
+remove_protect_init="-ob SECWM1_STRT=1 SECWM1_END=0 WRPSGn1=0xffffffff WRPSGn2=0xffffffff SECWM2_STRT=1 SECWM2_END=0 HDP1_STRT=1 HDP1_END=0 HDP2_STRT=1 HDP2_END=0 SECBOOT_LOCK=0xC3 SWAP_BANK=0 SRAM2_RST=0 SRAM2_ECC=0 BOOT_UBE=0xB4 TZEN=0xC3"
+"$stm32programmercli" $connect_reset $remove_protect_init -e all >> $provisioning_log
+if [ $? -ne 0 ]; then
+  echo "Error during mass erase and protection removal"
+  step_error
+fi
+echo "       Board reset to factory defaults"
+echo
+
+echo "   * BOOT0 pin should be connected to VDD"
+echo "       (STM32H573I-DK: set SW1 to position 1)"
+echo "       Press any key to continue..."
+echo
+if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
+
+# ================================================ OBKeys programming ===================================================================
+action="Provisionning the OBKeys ..."
+current_log_file=$obkey_programming_log
+echo "   * $action"
+command="source $obkey_programming AUTO"
+$command > $obkey_programming_log
+obkey_prog_error=$?
+if [ $obkey_prog_error -ne 0 ]; then step_error; fi
+echo "       Successful OBKeys provisioning"
+echo "       (see $obkey_programming_log for details)"
+echo
+
 echo "   * BOOT0 pin should be disconnected from VDD"
 echo "       (STM32H573I-DK: set SW1 to position 0)"
 echo "       Press any key to continue..."
 echo
 if [ "$mode" != "AUTO" ]; then read -p "" -n1 -s; fi
 
-# ================================================ Option Bytes and flash programming ======================================================
-action="Programming the option bytes and flashing the images ..."
+# ================================================ Flash programming and option bytes ===================================================
+action="Flashing images and programming option bytes ..."
 current_log_file=$ob_flash_log
 command="source $ob_flash_programming AUTO"
 echo "   * $action"
 $command > $ob_flash_log
 ob_flash_error=$?
 if [ $ob_flash_error -ne 0 ]; then step_error; fi
-echo "       Successful option bytes programming and images flashing"
+echo "       Successful flash and option bytes programming"
 echo "       (see $ob_flash_log for details)"
 echo
 
-# ============================================ Provisioning and product state modification =================================================
-product_state_choice
+# ============================================ Done =========================================================================================
+final_execution
