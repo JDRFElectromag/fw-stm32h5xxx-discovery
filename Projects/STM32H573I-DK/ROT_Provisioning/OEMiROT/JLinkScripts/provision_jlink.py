@@ -113,28 +113,48 @@ def program_obkeys():
         print(f"Provisioning OBK with DevPro: {obk_file}")
         run_devpro_operation("DbgAuthProvision", {"DataFile": str(obk_file)})
 
-def program_ob():
-    # Option Bytes. DO NOT MIXUP with OBK (ST bad at naming stuff)
-    # This just the default OB + min changes needed to use the OEMiROT boot path.
-    # My intention here is not to explian each bit just read the refManual or use
-    # STMCubeMX tool to understand each.
-    ob_config = {
-        #
-        "FLASH_OPTSR": "0xB4FF00FF", # Flash Option Status Register (main control) TZEN=1
-        "FLASH_OPTSR2": "0xC0000000", # Flash Option Status Register 2
-        "FLASH_SECWM1R": "0x00170000", # Security Watermark 1 for Bank 1
-         "FLASH_SECWM2R": "0x0000007F", # Security Watermark 2 for Bank 2
-        "FLASH_NSBOOTR": "0xFFFFFFF8", # Non-Secure Boot Register, we have no NS app running.
-        "FLASH_SECBOOTR": "0xFFFFFFFF", # Secure Boot Register
-        "FLASH_WRP1R": "0x00130000", # Write Protection Register 1 for Bank 1
-        "FLASH_WRP2R": "0x0000007F", # Write Protection Register 2 for Bank 2
-        "FLASH_OTPBLR": "0xB4FF00FF", # OTP Block Lock Register
-        "FLASH_HDP1R": "0xED0000FF", #  Hidden Debug Port Bank 1
-    }
+def write_ob(register_name: str, value: int) -> None:
+    value_hex = f"0x{value:08X}"
+    print(f"Writing option byte register: {register_name} = {value_hex}")
+    run_devpro_operation(
+        "WriteOptionBytes",
+        {"OptionName": register_name, "Value": value_hex},
+    )
 
-    for option_name, value in ob_config.items():
-        print(f"Writing option byte: {option_name} = {value}")
-        run_devpro_operation("WriteOptionBytes", {"OptionName": option_name, "Value": value})
+def pack_start_end(start: int, end: int) -> int:
+    return ((end & 0xFF) << 16) | (start & 0xFF)
+
+def pack_secboot(lock: int, secbootadd: int) -> int:
+    # DevPro exposes only FLASH_SECBOOTR writes, so pack SECBOOT_LOCK + SECBOOTADD.
+    return ((lock & 0xFF) << 24) | (secbootadd & 0x00FFFFFF)
+
+def program_option_bytes() -> None:
+    # Mirrors the option-byte intent from ob_flash_programming.sh
+    # 1) Set TZEN = 1
+    write_ob("FLASH_OPTSR", 0xB4FF00FF)
+
+    # 2) Remove protections (erase-all step in STM32_Programmer_CLI is not part of DevPro OptionByte ops)
+    write_ob("FLASH_SECWM1R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_SECWM2R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_WRP1R", 0xFFFFFFFF)
+    write_ob("FLASH_WRP2R", 0xFFFFFFFF)
+    write_ob("FLASH_HDP1R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_HDP2R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0x000000))
+
+    # 3) Set SecureBoot address
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0x0C0000))
+
+    # 4) Configure secure watermark
+    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x17))
+    write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
+
+    # 5) Final hardening: WRP + HDP + boot lock
+    write_ob("FLASH_WRP1R", 0xFFFFFFF8)
+    write_ob("FLASH_WRP2R", 0xFFFFFFFF)
+    write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x13))
+    write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0x0C0000))
 
 def program_firmware():
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
@@ -161,7 +181,7 @@ def main():
     program_firmware()
 
     print("Program Option Bytes")
-    program_ob()
+    program_option_bytes()
 
     print("Setting product state to OPEN")
     run_devpro_operation("SetDeviceState", {"ProdState": "OPEN"})
