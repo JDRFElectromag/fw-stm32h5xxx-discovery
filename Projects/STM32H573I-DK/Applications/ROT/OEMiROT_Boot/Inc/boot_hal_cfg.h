@@ -56,7 +56,7 @@
 #define NO_TAMPER            (0)                /*!< No tamper activated */
 #define INTERNAL_TAMPER_ONLY (1)                /*!< Only Internal tamper activated */
 #define ALL_TAMPER           (2)                /*!< Internal and External tamper activated */
-#define OEMIROT_TAMPER_ENABLE INTERNAL_TAMPER_ONLY            /*!< TAMPER configuration flag  */
+#define OEMIROT_TAMPER_ENABLE NO_TAMPER            /*!< TAMPER configuration flag  */
 
 #define OEMIROT_OB_BOOT_LOCK OB_BOOT_LOCK_ENABLE /*!< BOOT Lock expected value  */
 
