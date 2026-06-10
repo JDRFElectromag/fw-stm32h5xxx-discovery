@@ -1,9 +1,3 @@
-# JDRF ReadMe
-
-This repo houses discovery work to do with the STM32H573.
-
-# ST Readme
-
 ## <b>ROT_Provisioning OEMiROT Description</b>
 
 This section provides an overview of the available scripts for OEMiROT boot path.
