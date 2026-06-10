@@ -1,3 +1,4 @@
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -23,6 +24,20 @@ JLINK_EXE = "JLinkExe"
 DEVPRO_EXE = "DevProExe"
 DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex"
 
+def subproc_run(cmd) -> str:
+    result = subprocess.run(
+        cmd,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if result.stdout:
+        print(result.stdout)
+        return result.stdout
+    else:
+        return ""
+
 def run_jlink_script(script_name, action_str):
     script_path = Path(script_name)
     if not script_path.is_absolute():
@@ -37,14 +52,13 @@ def run_jlink_script(script_name, action_str):
         "-autoconnect", "1",
         "-CommandFile", str(script_path)
     ]
-    subprocess.run(cmd, check=True)
-    print("DONE")
+    return subproc_run(cmd)
 
 def generate_jlink_flash_script(output_dir, image_file):
     output_dir = Path(output_dir)
     script_content = [
         "connect",
-        "reset"
+        "reset",
         "halt",
         f"loadfile {image_file}",
         "exit",
@@ -67,7 +81,7 @@ def merge_hex_images(boot_hex_file, app_hex_file, output_hex_file):
     print(f"Merged HEX generated: {output_hex_file}")
 
 
-def run_devpro_operation(operation, config_vals=None):
+def run_devpro_operation(operation, config_vals=None) -> str:
     cmd = [
         DEVPRO_EXE,
         "-operation", operation,
@@ -78,7 +92,7 @@ def run_devpro_operation(operation, config_vals=None):
     if config_vals:
         for key, value in config_vals.items():
             cmd.extend(["-SetConfigVal", f"{key}={value}"])
-    subprocess.run(cmd, check=True)
+    return subproc_run(cmd)
 
 def program_obkeys():
     # Option Byte Key
@@ -125,16 +139,16 @@ def program_ob():
 def program_firmware():
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
         temp_path = Path(temp_dir)
-        boot_hex = IntelHex(OEMIROT_BOOT_HEX)
-        app_hex = IntelHex(ROT_TZ_S_APP_INIT_SIGN_HEX)
-        print(f"Merging {OEMIROT_BOOT_HEX.name} + {OEMIROT_BOOT_HEX.name}")
+        print(f"Merging {OEMIROT_BOOT_HEX.name} + {ROT_TZ_S_APP_INIT_SIGN_HEX.name}")
+        boot_hex = IntelHex(str(OEMIROT_BOOT_HEX))
+        app_hex = IntelHex(str(ROT_TZ_S_APP_INIT_SIGN_HEX))
         merged_hex = IntelHex()
         merged_hex.merge(boot_hex)
         merged_hex.merge(app_hex)
-        merged_hex = temp_path / "merged_oemirot.hex"
-        merged_hex.write_hex_file(merged_hex)
+        merged_hex_path = temp_path / "merged_oemirot.hex"
+        merged_hex.write_hex_file(str(merged_hex_path))
 
-        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=merged_hex)
+        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=merged_hex_path)
         run_jlink_script(script_path, "Programming merge hex file...")
 
 
