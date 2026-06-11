@@ -110,7 +110,7 @@ def run_devpro_operation(operation, config_vals=None) -> str:
     return subproc_run(cmd)
 
 def program_obkeys():
-    # Option Byte Key
+    print(inspect.currentframe().f_code.co_name)
     print("Discovering product state...")
     run_devpro_operation("DbgAuthDiscover")
 
@@ -213,39 +213,38 @@ def program_firmware():
 
 
 def main():
-    # Use STCubeProgrammer to reset to factory defaults.
-    # If device is provisioned already you better have password
-    # or certicate to get Debugger access otherwise device is bricked
-    # print("Expect a fresh device with all factory default values")
+    input("HARD Reset the board")
 
     input("Set BOOT0=0. Press Enter to continue...")
 
+    # Must setup OB first otherwise addres maps will be wrong.
+    # TZEN=1 will cause a remap of flash.
+    # You also need to setup the secure boot watermark at this stage
+    # doing it later cause issues.
     program_option_bytes_step1()
+
+    # Now the FW can be programmed.
+    # JLINK must be reset the board. Hence the script halt at the end and exits
     program_firmware()
+
+    # Program write and hide protection and secure boot address locks
+    # secure boot address lock is required otherwise MCU won't boot
     program_option_bytes_step2()
 
-    # OBK can only be programmed in this state!!!
-    # Even the datasheet says.
-    # ST provisioning scripts with cube programmer
-    # has a flow where it looks like OBK is provisioning
-    # in OPEN state the MCU stays open but I don't know how
-    # they are managing to do this. As if you move PROVISIONING --> OPEN
-    # the MCU erases. JLINK doesn't even allow you to this transition.
-    # if you try to do it via `FLASH_OPTSR2` the MCU auto erased.
+    # OBK can only be programmed in PROVISIONING state!!!
+    # Even the datasheet says this.
     print("Setting product state to PROVISIONING")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
 
     input("Set BOOT0=1. Press Enter to continue...")
     program_obkeys()
-    print("OBK provisioning complete")
 
-    # MCU won't boot in PROVISIONING need to transition out of it.
-    # JLINK does not provide a feature to transition back to OPEN
-    # as this would trigger the MCU to erase. I have no clue how ST
-    # is managing to program OBK in provisioning state unless they
-    # are performing hidden actions in the programmer.
+    # MCU will not boot in PROVISIONING you must transition
+    # to any state > PROVISIONING. Just don't use LOCK state.
+    print("Setting product state to PROVISIONED")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
 
+    print("Set BOOT0=0. Hard reset and hookup UART via STLINK to see logs")
 
 if __name__ == "__main__":
     main()
