@@ -1,3 +1,4 @@
+import inspect
 import subprocess
 import tempfile
 from pathlib import Path
@@ -122,7 +123,7 @@ def program_obkeys():
         print(f"Provisioning OBK with DevPro: {obk_file}")
         run_devpro_operation("DbgAuthProvision", {"DataFile": str(obk_file)})
 
-def write_ob(register_name: str, value: int) -> None:
+def write_ob(register_name: str, value: int):
     value_hex = f"0x{value:08X}"
     print(f"Writing option byte register: {register_name} = {value_hex}")
     run_devpro_operation(
@@ -130,22 +131,21 @@ def write_ob(register_name: str, value: int) -> None:
         {"OptionName": register_name, "Value": value_hex},
     )
 
+def read_ob(register_name: str):
+    print(f"Read option byte register: {register_name}")
+    run_devpro_operation(
+        "ReadOptionBytes",
+        {"OptionName": register_name},
+    )
+
 def pack_start_end(start: int, end: int) -> int:
     return ((end & 0xFF) << 16) | (start & 0xFF)
 
 def pack_secboot(lock: int, secbootadd: int) -> int:
-    return ((lock & 0xFF) << 24) | (secbootadd & 0x00FFFFFF)
+    return ((secbootadd & 0x00FFFFFF) << 8) | (lock & 0xFF)
 
-def program_option_bytes() -> None:
-    # Program the min set of OB for bootpath to work.
-    # Expect factory default option bytes to exist as
-    # i don't program all values
-
-    # This register control alot, including product state,
-    # even though JLINK has a discrete command for product state
-    # we can set it through this register. The setup is decoded below
-    write_ob("FLASH_OPTSR", 0x2D30EDF8) # Factory default if I don't program this someone R2 doesn't stick. -_-
-
+def program_option_bytes_step1():
+    print(inspect.currentframe().f_code.co_name)
     """
     SRAM1_3_RST: Value: 0x00000001 -> SRAM1 and SRAM3 not erased when a system reset occurs
     SRAM3_ECC: Value: 0x00000001 -> SRAM3 ECC check disabled
@@ -155,21 +155,47 @@ def program_option_bytes() -> None:
     SRAM2_ECC: Value: 0x00000000 -> SRAM2 ECC check enabled
     TZEN: Value: 0x000000B4 -> TrustZone enabled
     """
+    # Trust zone affect flash mapping. So we must enable it first.
+    # Otherwise you will likely be programming NS zones.
     write_ob("FLASH_OPTSR2", 0xB4000034)
 
-    # Configure secure watermark
+    # To write secure flash watermarks (FLASH_SECWMxR) we must program
+    # the secure boot register but it must be left unlocked.
+    # 0xC0000 --> bootloader secure zone start address
+    # 0xCE --> Leave it unlocked.
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
+
     write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x17))
     write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
 
-    # Final hardening: WRP + HDP + boot address
+def program_option_bytes_step2():
+    print(inspect.currentframe().f_code.co_name)
     write_ob("FLASH_WRP1R", 0xFFFFFFF8)
     write_ob("FLASH_WRP2R", 0xFFFFFFFF)
 
     write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x13))
     write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
-    write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0x0C0000)) #Address of secure boot + lock the register
+
+    # Need to lock the secure boot address otherwise MCU won't boot
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
+
+def read_program_option_bytes():
+    read_ob("FLASH_OPTSR")
+    read_ob("FLASH_OPTSR2")
+    read_ob("FLASH_NSBOOTR")
+    read_ob("FLASH_SECBOOTR")
+    read_ob("FLASH_SECWM1R")
+    read_ob("FLASH_SECWM2R")
+    read_ob("FLASH_WRP1R")
+    read_ob("FLASH_WRP2R")
+    read_ob("FLASH_OTPBLR")
+    read_ob("FLASH_EDATA1R")
+    read_ob("FLASH_EDATA2R")
+    read_ob("FLASH_HDP1R")
+    read_ob("FLASH_HDP2R")
 
 def program_firmware():
+    print(inspect.currentframe().f_code.co_name)
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
         temp_path = Path(temp_dir)
         print(f"Merging {OEMIROT_BOOT_HEX.name} + {ROT_TZ_S_APP_INIT_SIGN_HEX.name}")
@@ -194,13 +220,18 @@ def main():
 
     input("Set BOOT0=0. Press Enter to continue...")
 
-    print("Program Firmware")
+    program_option_bytes_step1()
     program_firmware()
+    program_option_bytes_step2()
 
-    print("Program Option Bytes, but leave debugger access open")
-    program_option_bytes()
-
-    # To program OBK we need to move to PROVISIONING state
+    # OBK can only be programmed in this state!!!
+    # Even the datasheet says.
+    # ST provisioning scripts with cube programmer
+    # has a flow where it looks like OBK is provisioning
+    # in OPEN state the MCU stays open but I don't know how
+    # they are managing to do this. As if you move PROVISIONING --> OPEN
+    # the MCU erases. JLINK doesn't even allow you to this transition.
+    # if you try to do it via `FLASH_OPTSR2` the MCU auto erased.
     print("Setting product state to PROVISIONING")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
 
@@ -208,13 +239,12 @@ def main():
     program_obkeys()
     print("OBK provisioning complete")
 
-    input("Set BOOT0=0. To Boot from main flash and power cycle board")
-
-    # At this point the bootloader should transitation the option bytes
-    # to fianl most secure state as well as product state.
-    # The debugger can't applies these all atomatically and some option byte
-    # can cause the debugger to loose acccess as well as product state transition.
-    # TODO test programming OB again for better lock down and settting ProdState alst
+    # MCU won't boot in PROVISIONING need to transition out of it.
+    # JLINK does not provide a feature to transition back to OPEN
+    # as this would trigger the MCU to erase. I have no clue how ST
+    # is managing to program OBK in provisioning state unless they
+    # are performing hidden actions in the programmer.
+    run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
 
 
 if __name__ == "__main__":
