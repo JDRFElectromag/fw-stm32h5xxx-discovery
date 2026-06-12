@@ -80,8 +80,8 @@
 		<Command>-s</Command>
 		<Hidden>1</Hidden>
 		<Tooltip>Value of Security counter on which antirollback feature is relying.
-		'auto' (default) : security counter value is automatically aligned to image version.
-		'32 bits value': security counter value manually selected (not aligned with image version).
+		"auto" (default) : security counter value is automatically aligned to image version.
+		"32 bits value": security counter value manually selected (not aligned with image version).
 		Antirollback feature is inactive if security counter value remains unchanged at each version of image.
 		</Tooltip>
 		<Default>auto</Default>
@@ -95,7 +95,7 @@
 	</Param>
 	<Param>
 		<Name>Firmware execution area offset</Name>
-		<Value>0x8018000</Value>
+		<Value>0x0</Value>
 		<Type>Data</Type>
 		<Command>-x</Command>
 		<Hidden>1</Hidden>
@@ -119,7 +119,7 @@
 	</Param>
 	<Output>
 		<Name>Image output file</Name>
-		<Value>../Binary/s_data_init_sign.hex</Value>
+		<Value>/home/desmond/workspace/dev/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/ROT_Provisioning/OEMiROT/Binary/s_data_init_sign.hex</Value>
 		<Default>../Binary/s_data_init_sign.bin</Default>
 	</Output>
   </McubootFormat>

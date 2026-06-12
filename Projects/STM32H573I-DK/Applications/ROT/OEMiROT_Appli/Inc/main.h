@@ -29,8 +29,8 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
-#define S_CODE_OFFSET      0x1A000 /* This define is updated automatically from ROT_BOOT project */
-#define S_CODE_SIZE        0x6000 /* This define is updated automatically from ROT_BOOT project */
+#define S_CODE_OFFSET      0x28000 /* This define is updated automatically from ROT_BOOT project */
+#define S_CODE_SIZE        0x8000 /* This define is updated automatically from ROT_BOOT project */
 #define IMAGE_HEADER_SIZE  (0x400)  /* mcuboot headre size */
 #define S_CODE_START       (FLASH_BASE_S + S_CODE_OFFSET + IMAGE_HEADER_SIZE)
 

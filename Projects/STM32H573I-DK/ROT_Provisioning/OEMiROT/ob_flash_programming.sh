@@ -6,19 +6,19 @@ source img_config.sh
 
 script_error_file="error"
 sec1_start=0
-sec1_end=0xE
+sec1_end=0x17
 sec2_start=0x7F
 sec2_end=0x0
 wrpgrp1=0xFFFFFFF8
 wrpgrp2=0xFFFFFFFF
 hdp1_start=0
-hdp1_end=0xB
+hdp1_end=0x13
 hdp2_start=0x7F
 hdp2_end=0x0
 boot_lck=0xB4
 bootaddress=0xC000000
 bootob=0xC0000
-app_image_number=2
+app_image_number=1
 s_data_image_number=0
 ns_data_image_number=0
 s_code_image=$oemirot_appli_secure

@@ -40,7 +40,7 @@
 	</Param>
 	<Param>
 		<Name>Firmware area size</Name>
-		<Value>0x6000</Value>
+		<Value>0x8000</Value>
 		<Type>Data</Type>
 		<Command>-S</Command>
 		<Hidden>1</Hidden>
@@ -79,14 +79,6 @@
 		<Default>2,1.0.0</Default>
 	</Param>
 	<Param>
-		<Name>Write Option</Name>
-		<Type>Data</Type>
-		<Command>--overwrite-only</Command>
-		<Enable>0</Enable>
-		<Hidden>1</Hidden>
-		<Default></Default>
-	</Param>
-	<Param>
 		<Name>Version</Name>
 		<Value>1.0.0</Value>
 		<Type>Data</Type>
@@ -101,8 +93,8 @@
 		<Command>-s</Command>
 		<Hidden>1</Hidden>
 		<Tooltip>Value of Security counter on which antirollback feature is relying.
-		'auto' (default) : security counter value is automatically aligned to image version.
-		'32 bits value': security counter value manually selected (not aligned with image version).
+		"auto" (default) : security counter value is automatically aligned to image version.
+		"32 bits value": security counter value manually selected (not aligned with image version).
 		Antirollback feature is inactive if security counter value remains unchanged at each version of image.
 		</Tooltip>
 		<Default>auto</Default>
@@ -116,7 +108,7 @@
 	</Param>
 	<Param>
 		<Name>Firmware download area offset</Name>
-		<Value>0x80BE000</Value>
+		<Value>0x8030000</Value>
 		<Type>Data</Type>
 		<Command>-x</Command>
 		<Hidden>1</Hidden>
@@ -124,7 +116,7 @@
 	</Param>
 	<Param>
 		<Name>Number of scratch sectors</Name>
-		<Value>0</Value>
+		<Value>1</Value>
 		<Type>Data</Type>
 		<Command>-M</Command>
 		<Hidden>1</Hidden>
@@ -133,14 +125,14 @@
 	</Param>
 	<Param>
 		<Name>Firmware binary input file</Name>
-		<Value>../../../Applications/ROT/OEMiROT_Appli_TrustZone/Binary/rot_tz_s_app.bin</Value>
+		<Value>/home/desmond/workspace/dev/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli/STM32CubeIDE/../Binary/rot_tz_s_app.bin</Value>
 		<Type>File</Type>
 		<Tooltip>Select the firmware binary file to be processed for the image generation</Tooltip>
 		<Default>../../../Applications/ROT/OEMiROT_Appli_TrustZone/Binary/rot_tz_s_app.bin</Default>
 	</Param>
 	<Output>
 		<Name>Image output file</Name>
-		<Value>../../../Applications/ROT/OEMiROT_Appli_TrustZone/Binary/rot_tz_s_app_enc_sign.hex</Value>
+		<Value>/home/desmond/workspace/dev/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli/STM32CubeIDE/../Binary/rot_tz_s_app_enc_sign.hex</Value>
 		<Default>../../../Applications/ROT/OEMiROT_Appli_TrustZone/Binary/rot_tz_s_app_enc_sign.hex</Default>
 	</Output>
   </McubootFormat>
