@@ -1,9 +1,14 @@
 import inspect
+import re
 import subprocess
 import tempfile
+import threading
+from typing import Callable
 from pathlib import Path
+import time
 
 from intelhex import IntelHex
+from uart_terminal import run_term as uart_run_term
 
 # Configuration
 SCRIPT_DIR = Path(__file__).parent
@@ -20,13 +25,21 @@ ROT_TZ_S_APP_INIT_SIGN_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certs
 OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Enc and auth keys default too. never updated them.
 
+DEBUGGER_ACCESS_ROOT_DIR = CUBE_FW_PATH / "Projects/STM32H573I-DK/ROT_Provisioning/DA"
+DEBUGGER_ACCESS_SK = DEBUGGER_ACCESS_ROOT_DIR / "Keys/key_1_root.pem"
+DEBUGGER_ACCESS_CERT = DEBUGGER_ACCESS_ROOT_DIR / "Certificates/cert_root.b64"
+
 JLINK_EXE = "JLinkExe"
 DEVPRO_EXE = "DevProExe"
 DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex"
+CPU_HALTED_LOG_LINE = "CPU halted."
+HALT_WAIT_TIMEOUT_S = 30
 
-import subprocess
-
-def subproc_run(cmd) -> str:
+def subproc_run(
+    cmd,
+    on_output_line: Callable[[str], None] | None = None,
+    on_process_start: Callable[[subprocess.Popen], None] | None = None,
+) -> str:
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -35,11 +48,16 @@ def subproc_run(cmd) -> str:
         bufsize=1,  # line-buffered
     )
 
+    if on_process_start is not None:
+        on_process_start(process)
+
     output_lines = []
 
     for line in process.stdout:
         print(line, end="")  # real-time logging
         output_lines.append(line)
+        if on_output_line is not None:
+            on_output_line(line)
 
         if "error" in line.casefold():
             process.kill()
@@ -52,7 +70,12 @@ def subproc_run(cmd) -> str:
 
     return "".join(output_lines)
 
-def run_jlink_script(script_name, action_str):
+def run_jlink_script(
+    script_name,
+    action_str,
+    on_output_line: Callable[[str], None] | None = None,
+    on_process_start: Callable[[subprocess.Popen], None] | None = None,
+):
     script_path = Path(script_name)
     if not script_path.is_absolute():
         script_path = JLINK_SCRIPTS_DIR / script_path
@@ -66,18 +89,50 @@ def run_jlink_script(script_name, action_str):
         "-autoconnect", "1",
         "-CommandFile", str(script_path)
     ]
-    return subproc_run(cmd)
+    return subproc_run(
+        cmd,
+        on_output_line=on_output_line,
+        on_process_start=on_process_start,
+    )
 
-def generate_jlink_flash_script(output_dir, image_file, reset_board=False):
+def generate_jlink_reset_script(output_dir):
     output_dir = Path(output_dir)
     script_content = [
         "connect",
-        "reset" if reset_board else  "",
-        "halt",
-        f"loadfile {image_file}",
-        "halt", # Must stay halted after this.
+        "reset",
         "exit"
     ]
+    script_path = output_dir / "flash_images.jlink"
+    with open(script_path, 'w') as f:
+        f.write('\n'.join(script_content))
+    return script_path
+
+def generate_jlink_erase_script(output_dir):
+    output_dir = Path(output_dir)
+    script_content = [
+        "connect",
+        "reset",
+        "erase",
+        "exit"
+    ]
+    script_path = output_dir / "flash_images.jlink"
+    with open(script_path, 'w') as f:
+        f.write('\n'.join(script_content))
+    return script_path
+
+def generate_jlink_flash_script(output_dir, image_file, is_hold_halt=False):
+    output_dir = Path(output_dir)
+    script_content = [
+        "connect",
+        "halt", # We don't wanna reset!
+        f"loadfile {image_file}",
+        "halt", # Must stay halted after this.
+    ]
+    if is_hold_halt:
+        script_content.append("WaitHalt")
+    else:
+        script_content.append("exit")
+
     script_path = output_dir / "flash_images.jlink"
     with open(script_path, 'w') as f:
         f.write('\n'.join(script_content))
@@ -90,9 +145,6 @@ def merge_hex_images(boot_hex_file, app_hex_file, output_hex_file):
     for required_file in (boot_hex_file, app_hex_file):
         if not required_file.exists():
             raise FileNotFoundError(f"Missing required firmware image: {required_file}")
-
-
-
     print(f"Merged HEX generated: {output_hex_file}")
 
 
@@ -123,7 +175,7 @@ def program_obkeys():
         print(f"Provisioning OBK with DevPro: {obk_file}")
         run_devpro_operation("DbgAuthProvision", {"DataFile": str(obk_file)})
 
-def write_ob(register_name: str, value: int):
+def _write_ob(register_name: str, value: int):
     value_hex = f"0x{value:08X}"
     print(f"Writing option byte register: {register_name} = {value_hex}")
     run_devpro_operation(
@@ -131,12 +183,49 @@ def write_ob(register_name: str, value: int):
         {"OptionName": register_name, "Value": value_hex},
     )
 
+def write_ob(register_name: str, value: int):
+    _write_ob(register_name, value)
+    # time.sleep(0.1)
+
 def read_ob(register_name: str):
     print(f"Read option byte register: {register_name}")
-    run_devpro_operation(
+    return run_devpro_operation(
         "ReadOptionBytes",
         {"OptionName": register_name},
     )
+
+def run_in_daemon_thread(func, args=(), kwargs=None):
+    """Run a function in a daemon thread that dies if parent dies."""
+    if kwargs is None:
+        kwargs = {}
+    thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
+    thread.start()
+    return thread
+
+def parse_flash_secbootr_value(log_text: str):
+    match = re.search(
+        r"J-Link log:\s+FLASH_SECBOOTR\s+value:\s+(0x[0-9A-Fa-f]+)",
+        log_text,
+    )
+    if not match:
+        return None
+    return int(match.group(1), 16)
+
+def debug_access_auth_with_cert(perm: str):
+    run_devpro_operation(
+        "DbgAuthCert",
+        {
+            "CertFile": str(DEBUGGER_ACCESS_CERT),
+            "KeyFile": str(DEBUGGER_ACCESS_SK),
+            "Perm": perm
+        },
+    )
+
+def full_regression():
+    debug_access_auth_with_cert(perm="Full Regression")
+
+def debugger_open_intrusive_level3():
+    debug_access_auth_with_cert(perm="Level 3 Intrusive Debug")
 
 def pack_start_end(start: int, end: int) -> int:
     return ((end & 0xFF) << 16) | (start & 0xFF)
@@ -161,7 +250,7 @@ def program_option_bytes_step1():
 
     # To write secure flash watermarks (FLASH_SECWMxR) we must program
     # the secure boot register but it must be left unlocked.
-    # 0xC0000 --> bootloader secure zone start address
+    # 0xC0000 --> Bootloader secure boot address. Must match what we plan to flash or flashing will fail.
     # 0xCE --> Leave it unlocked.
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
@@ -179,41 +268,131 @@ def program_option_bytes_step2():
     # Need to lock the secure boot address otherwise MCU won't boot
     write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
 
+def program_option_bytes_defaults():
+    print(inspect.currentframe().f_code.co_name)
+
+    write_ob("FLASH_OPTSR2", 0xB4000034)
+    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0))
+    write_ob("FLASH_SECWM1R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_SECWM2R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_HDP1R", pack_start_end(0x01, 0x00))
+    write_ob("FLASH_HDP2R", pack_start_end(0x01, 0x00))
+
+    # Remove write protection.
+    write_ob("FLASH_WRP1R", 0xFFFFFFFF)
+    write_ob("FLASH_WRP2R", 0xFFFFFFFF)
+
 def read_program_option_bytes():
-    read_ob("FLASH_OPTSR")
-    read_ob("FLASH_OPTSR2")
-    read_ob("FLASH_NSBOOTR")
-    read_ob("FLASH_SECBOOTR")
-    read_ob("FLASH_SECWM1R")
-    read_ob("FLASH_SECWM2R")
-    read_ob("FLASH_WRP1R")
-    read_ob("FLASH_WRP2R")
-    read_ob("FLASH_OTPBLR")
-    read_ob("FLASH_EDATA1R")
-    read_ob("FLASH_EDATA2R")
-    read_ob("FLASH_HDP1R")
-    read_ob("FLASH_HDP2R")
+    log = ""
+    # log += read_ob("FLASH_OPTSR")
+    # log += read_ob("FLASH_OPTSR2")
+    # log += read_ob("FLASH_NSBOOTR")
+    log += read_ob("FLASH_SECBOOTR")
+    # log += read_ob("FLASH_SECWM1R")
+    # log += read_ob("FLASH_SECWM2R")
+    # log += read_ob("FLASH_WRP1R")
+    # log += read_ob("FLASH_WRP2R")
+    # log += read_ob("FLASH_OTPBLR")
+    # log += read_ob("FLASH_EDATA1R")
+    # log += read_ob("FLASH_EDATA2R")
+    # log += read_ob("FLASH_HDP1R")
+    # log += read_ob("FLASH_HDP2R")
+
+    return log
 
 def program_firmware():
-    print(inspect.currentframe().f_code.co_name)
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
-        temp_path = Path(temp_dir)
-        print(f"Merging {OEMIROT_BOOT_HEX.name} + {ROT_TZ_S_APP_INIT_SIGN_HEX.name}")
-        boot_hex = IntelHex(str(OEMIROT_BOOT_HEX))
-        app_hex = IntelHex(str(ROT_TZ_S_APP_INIT_SIGN_HEX))
-        merged_hex = IntelHex()
-        merged_hex.merge(boot_hex)
-        merged_hex.merge(app_hex)
-        merged_hex_path = temp_path / "merged_oemirot.hex"
-        merged_hex.write_hex_file(str(merged_hex_path))
+        temp_path=Path(temp_dir)
 
-        # After this the baord core should never run
-        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=merged_hex_path, reset_board=True)
-        run_jlink_script(script_path, "Programming merge hex file...")
+        # DO not merge the hex file you want the bootloader flashed
+        # last always!!! Even ST prov script enforce this!
 
+        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=str(ROT_TZ_S_APP_INIT_SIGN_HEX))
+        run_jlink_script(script_path, "Programming App...")
+
+        script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=str(OEMIROT_BOOT_HEX), is_hold_halt=True)
+        cpu_halted_event = threading.Event()
+        stop_bootloader_event = threading.Event()
+        bootloader_error = []
+        bootloader_process_holder = {"process": None}
+
+        def flash_bootloader_and_hold_mcu_in_reset():
+            try:
+                run_jlink_script(
+                    script_path,
+                    "Programming Bootloader...",
+                    on_output_line=lambda line: cpu_halted_event.set() if CPU_HALTED_LOG_LINE in line else None,
+                    on_process_start=lambda process: bootloader_process_holder.update({"process": process}),
+                )
+            except Exception as exc:
+                if not stop_bootloader_event.is_set():
+                    bootloader_error.append(exc)
+                    cpu_halted_event.set()
+
+        bootloader_thread = run_in_daemon_thread(flash_bootloader_and_hold_mcu_in_reset)
+
+        if not cpu_halted_event.wait(timeout=HALT_WAIT_TIMEOUT_S):
+            raise TimeoutError(
+                f"Timed out after {HALT_WAIT_TIMEOUT_S}s waiting for '{CPU_HALTED_LOG_LINE}' in J-Link output"
+            )
+
+        if bootloader_error:
+            raise RuntimeError("Bootloader flash thread failed before CPU halt confirmation") from bootloader_error[0]
+
+        print("Finish programming and holding MCU halted")
+
+        def stop_bootloader_hold_thread():
+            stop_bootloader_event.set()
+            process = bootloader_process_holder["process"]
+
+            if process is not None and process.poll() is None:
+                print("Stopping bootloader hold J-Link session...")
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+
+            bootloader_thread.join(timeout=1)
+
+        return stop_bootloader_hold_thread
+
+def reset_mcu():
+    print(inspect.currentframe().f_code.co_name)
+    with tempfile.TemporaryDirectory(prefix="reset_mcu_") as temp_dir:
+        script_path = generate_jlink_reset_script(output_dir=Path(temp_dir))
+        run_jlink_script(script_path, "Resetting MCU...")
+
+def mass_erase():
+    print(inspect.currentframe().f_code.co_name)
+    with tempfile.TemporaryDirectory(prefix="mass_erase") as temp_dir:
+        script_path = generate_jlink_erase_script(output_dir=Path(temp_dir))
+        run_jlink_script(script_path, "mass erasing...")
+
+def validate_secbootr(expected):
+    logs = read_program_option_bytes()
+    val = parse_flash_secbootr_value(logs)
+    if val != expected:
+        raise RuntimeError(f"Bad secbootr. Got:{hex(val)}, expected: {hex(expected)}")
+
+def program_option_bytes_step1_with_secbootr_validations():
+    program_option_bytes_step1()
+    validate_secbootr(0x0C0000C3)
+
+def program_option_bytes_step2_with_secbootr_validations():
+    program_option_bytes_step2()
+    validate_secbootr(0x0C0000B4)
 
 def main():
-    input("HARD Reset the board")
+
+    # program_option_bytes_step2_with_secbootr_validations()
+    # return
+    # try:
+    #     full_regression() # only work if device was >= PROVISIONED
+    # finally:
+    #     mass_erase()
+    # return
 
     input("Set BOOT0=0. Press Enter to continue...")
 
@@ -221,30 +400,43 @@ def main():
     # TZEN=1 will cause a remap of flash.
     # You also need to setup the secure boot watermark at this stage
     # doing it later cause issues.
-    program_option_bytes_step1()
+    program_option_bytes_step1_with_secbootr_validations()
 
-    # Now the FW can be programmed.
-    # JLINK must be reset the board. Hence the script halt at the end and exits
-    program_firmware()
+    # Program firmware WHILE SECBOOTR is UNLOCKED (0xC3)
+    # J-Link needs to erase sectors, which is blocked if SECBOOTR is locked (0xB4)
+    stop_bootloader_hold_thread = program_firmware()
 
-    # Program write and hide protection and secure boot address locks
-    # secure boot address lock is required otherwise MCU won't boot
-    program_option_bytes_step2()
+    # Regardless of trying to hold CPU in halt when DevProExe runs
+    # sometime the CPU unhault and bootloader rusn causes the
+    # OB to not be updateable which then put the CPU into state
+    # it can't boot because OB are not finished updating.
+    # so we change the boot mode rigth after flashing which prevents
+    # the CPU from running the bootloader. And thn we program the option bytes.
+    input("Set BOOT0=1. Press Enter to continue...")
+
+    # MCU is halted here. Now lock SECBOOTR while still halted to prevent firmware
+    # from modifying it during early boot.
+    try:
+        program_option_bytes_step2_with_secbootr_validations() # Let it continue if it fails
+    finally:
+        stop_bootloader_hold_thread()
 
     # OBK can only be programmed in PROVISIONING state!!!
     # Even the datasheet says this.
     print("Setting product state to PROVISIONING")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
 
-    input("Set BOOT0=1. Press Enter to continue...")
     program_obkeys()
 
     # MCU will not boot in PROVISIONING you must transition
     # to any state > PROVISIONING. Just don't use LOCK state.
-    print("Setting product state to PROVISIONED")
+    # print("Setting product state to PROVISIONED")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
 
-    print("Set BOOT0=0. Hard reset and hookup UART via STLINK to see logs")
+    input("Set BOOT0=0. Hard reset")
+
+    # reset_mcu()
+    # uart_run_term(port="/dev/ttyACM0")
 
 if __name__ == "__main__":
     main()
