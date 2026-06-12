@@ -300,15 +300,18 @@ def program_option_bytes_step2():
     write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x13))
     write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
 
-def program_option_bytes_step3():
+def program_option_bytes_secure_boot_lock():
     print(inspect.currentframe().f_code.co_name)
 
     # Need to lock the SECBOOT register for the MCU to boot properly.
-    # Doing this from J-Link is flaky, and it often fails.
-    # It reports success, but readback can still be wrong.
-    # The firmware will not boot without this byte lock being applied.
+    # Doing this from J-Link is flaky, regardless of boot0 pin.
+    # It mostly doesn't work as you can write it and it says successful
+    # but reading it back show that is wrong.
+    #
     # write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
 
+    # Using JLINK and STM32 cube programmer flashing it makes it work.
+    # Unsure why maybe STLINK is using there own ram loaders
     run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
 
 def program_option_bytes_defaults():
@@ -437,24 +440,24 @@ def main():
     # Doing it later causes issues.
     program_option_bytes_step1_with_secbootr_validations()
 
-    # Program firmware WHILE SECBOOTR is UNLOCKED (0xC3)
-    # J-Link needs to erase sectors, which is blocked if SECBOOTR is locked (0xB4)
+    # SECBOOTR needs to be set with the address we plan to program
+    # the bootloader into as well as UNLOCK byte.
+    # Without this bootlaoder programming will fail.
     stop_bootloader_hold_thread = program_firmware()
 
     # Even when trying to keep the CPU halted while DevProExe runs,
-    # sometimes the CPU unhalts and the bootloader runs.
-    # That can prevent option bytes from being updated and leave the CPU
-    # in a state where it cannot boot because OB updates are incomplete.
-    # So we switch the boot mode right after flashing while JLINK still
-    # has the CPU halted but before DevProExe runs.
-    # This ensure that bootloader can never run which what we want.
+    # sometimes the CPU unhalts and the bootloader runs. As DevProExe
+    # and JLINK comander are 2 different programs.
+    # To get around this switch the BOOT0 pin before we start devProExe tool.
+    # This ensure that when the DevProExe tool does start to flash the OB
+    # the bootloader doesn't run.
     input("Set BOOT0=1. Press Enter to continue...")
     stop_bootloader_hold_thread()
 
-    # MCU is halted here. Now lock SECBOOTR while still halted to prevent firmware
-    # from modifying it during early boot.
+    # We can flash OBs when BOOT0=1. MCU boot won't be runnng
+    # as CPU is in ROM flash. So we don't run nto any issue
     program_option_bytes_step2()
-    program_option_bytes_step3()
+    program_option_bytes_secure_boot_lock()
 
     # OBK can only be programmed in PROVISIONING state!!!
     # Even the datasheet says this.
