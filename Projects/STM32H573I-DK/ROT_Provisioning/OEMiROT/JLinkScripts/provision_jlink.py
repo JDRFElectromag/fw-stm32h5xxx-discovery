@@ -24,6 +24,7 @@ OEMIROT_BOOT_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiR
 ROT_TZ_S_APP_INIT_SIGN_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli/Binary/rot_tz_s_app_init_sign.hex"
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certs
 OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Enc and auth keys default too. never updated them.
+OEMIROT_DATA_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Data.obk" # NOT USED but need to be programmed otherwise hash checks will fail
 
 DEBUGGER_ACCESS_ROOT_DIR = CUBE_FW_PATH / "Projects/STM32H573I-DK/ROT_Provisioning/DA"
 DEBUGGER_ACCESS_SK = DEBUGGER_ACCESS_ROOT_DIR / "Keys/key_1_root.pem"
@@ -204,6 +205,7 @@ def program_obkeys():
     obk_files = [
         DA_OBKEY,
         OEMIROT_CONFIG_OBKEY,
+        OEMIROT_DATA_OBKEY,
     ]
 
     for obk_file in obk_files:
@@ -305,6 +307,7 @@ def program_option_bytes_step3():
 
     # Need to lcok the secboot register for the MCU to boot properly.
     # doing this from JLINK is very flaky majority time it fails.
+    # it says sucessful but reading back it's wrong
     # write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
 
     run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
@@ -325,19 +328,19 @@ def program_option_bytes_defaults():
 
 def read_program_option_bytes():
     log = ""
-    # log += read_ob("FLASH_OPTSR")
-    # log += read_ob("FLASH_OPTSR2")
-    # log += read_ob("FLASH_NSBOOTR")
+    log += read_ob("FLASH_OPTSR")
+    log += read_ob("FLASH_OPTSR2")
+    log += read_ob("FLASH_NSBOOTR")
     log += read_ob("FLASH_SECBOOTR")
-    # log += read_ob("FLASH_SECWM1R")
-    # log += read_ob("FLASH_SECWM2R")
-    # log += read_ob("FLASH_WRP1R")
-    # log += read_ob("FLASH_WRP2R")
-    # log += read_ob("FLASH_OTPBLR")
-    # log += read_ob("FLASH_EDATA1R")
-    # log += read_ob("FLASH_EDATA2R")
-    # log += read_ob("FLASH_HDP1R")
-    # log += read_ob("FLASH_HDP2R")
+    log += read_ob("FLASH_SECWM1R")
+    log += read_ob("FLASH_SECWM2R")
+    log += read_ob("FLASH_WRP1R")
+    log += read_ob("FLASH_WRP2R")
+    log += read_ob("FLASH_OTPBLR")
+    log += read_ob("FLASH_EDATA1R")
+    log += read_ob("FLASH_EDATA2R")
+    log += read_ob("FLASH_HDP1R")
+    log += read_ob("FLASH_HDP2R")
 
     return log
 
@@ -412,8 +415,8 @@ def mass_erase():
         run_jlink_script(script_path, "mass erasing...")
 
 def validate_secbootr(expected):
-    logs = read_program_option_bytes()
-    val = parse_flash_secbootr_value(logs)
+    log = read_ob("FLASH_SECBOOTR")
+    val = parse_flash_secbootr_value(log)
     if val != expected:
         raise RuntimeError(f"Bad secbootr. Got:{hex(val)}, expected: {hex(expected)}")
 
@@ -447,12 +450,12 @@ def main():
     # so we change the boot mode rigth after flashing which prevents
     # the CPU from running the bootloader. And thn we program the option bytes.
     input("Set BOOT0=1. Press Enter to continue...")
+    stop_bootloader_hold_thread()
 
     # MCU is halted here. Now lock SECBOOTR while still halted to prevent firmware
     # from modifying it during early boot.
     program_option_bytes_step2()
     program_option_bytes_step3()
-    stop_bootloader_hold_thread()
 
     # OBK can only be programmed in PROVISIONING state!!!
     # Even the datasheet says this.
