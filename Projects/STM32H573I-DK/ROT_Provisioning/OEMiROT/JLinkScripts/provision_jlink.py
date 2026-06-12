@@ -22,9 +22,9 @@ SPEED = "4000"
 
 OEMIROT_BOOT_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Boot/Binary/OEMiROT_Boot.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli/Binary/rot_tz_s_app_init_sign.hex"
-DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certs
-OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Enc and auth keys default too. never updated them.
-OEMIROT_DATA_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Data.obk" # NOT USED but need to be programmed otherwise hash checks will fail
+DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.
+OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Encryption and authentication keys use defaults and were never updated.
+OEMIROT_DATA_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Data.obk" # Not used directly, but must be programmed or hash checks fail.
 
 DEBUGGER_ACCESS_ROOT_DIR = CUBE_FW_PATH / "Projects/STM32H573I-DK/ROT_Provisioning/DA"
 DEBUGGER_ACCESS_SK = DEBUGGER_ACCESS_ROOT_DIR / "Keys/key_1_root.pem"
@@ -135,9 +135,9 @@ def generate_jlink_flash_script(output_dir, image_file, is_hold_halt=False):
     output_dir = Path(output_dir)
     script_content = [
         "connect",
-        "halt", # We don't wanna reset!
+        "halt", # Do not reset here.
         f"loadfile {image_file}",
-        "halt", # Must stay halted after this.
+        "halt", # Must remain halted after this.
     ]
     if is_hold_halt:
         script_content.append("WaitHalt")
@@ -193,7 +193,7 @@ def run_stm32_programmer_cli(args=None, connection=None) -> str:
 
     return subproc_run(
         cmd,
-        # This error happens with JLINK debugger all the time.
+        # This error appears frequently when using the J-Link debugger.
         error_ignore_terms=["error: st-link interface not available"],
     )
 
@@ -281,14 +281,14 @@ def program_option_bytes_step1():
     SRAM2_ECC: Value: 0x00000000 -> SRAM2 ECC check enabled
     TZEN: Value: 0x000000B4 -> TrustZone enabled
     """
-    # Trust zone affect flash mapping. So we must enable it first.
+    # TrustZone affects flash mapping, so it must be enabled first.
     # Otherwise you will likely be programming NS zones.
     write_ob("FLASH_OPTSR2", 0xB4000034)
 
     # To write secure flash watermarks (FLASH_SECWMxR) we must program
     # the secure boot register but it must be left unlocked.
     # 0xC0000 --> Bootloader secure boot address. Must match what we plan to flash or flashing will fail.
-    # 0xCE --> Leave it unlocked.
+    # 0xC3 --> Leave it unlocked.
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
     write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x17))
@@ -305,9 +305,9 @@ def program_option_bytes_step2():
 def program_option_bytes_step3():
     print(inspect.currentframe().f_code.co_name)
 
-    # Need to lcok the secboot register for the MCU to boot properly.
-    # doing this from JLINK is very flaky majority time it fails.
-    # it says sucessful but reading back it's wrong
+    # Need to lock the SECBOOT register for the MCU to boot properly.
+    # Doing this from J-Link is flaky, and it often fails.
+    # It reports success, but readback can still be wrong.
     # write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
 
     run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
@@ -348,8 +348,8 @@ def program_firmware():
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
         temp_path=Path(temp_dir)
 
-        # DO not merge the hex file you want the bootloader flashed
-        # last always!!! Even ST prov script enforce this!
+        # Do not merge these HEX files. The bootloader must always be flashed last.
+        # The ST provisioning script enforces this sequence too.
 
         script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=str(ROT_TZ_S_APP_INIT_SIGN_HEX))
         run_jlink_script(script_path, "Programming App...")
@@ -433,22 +433,22 @@ def main():
 
     input("Set BOOT0=0. Press Enter to continue...")
 
-    # Must setup OB first otherwise addres maps will be wrong.
+    # Option bytes must be set first; otherwise address mapping will be wrong.
     # TZEN=1 will cause a remap of flash.
-    # You also need to setup the secure boot watermark at this stage
-    # doing it later cause issues.
+    # You also need to set the secure boot watermark at this stage.
+    # Doing it later causes issues.
     program_option_bytes_step1_with_secbootr_validations()
 
     # Program firmware WHILE SECBOOTR is UNLOCKED (0xC3)
     # J-Link needs to erase sectors, which is blocked if SECBOOTR is locked (0xB4)
     stop_bootloader_hold_thread = program_firmware()
 
-    # Regardless of trying to hold CPU in halt when DevProExe runs
-    # sometime the CPU unhault and bootloader rusn causes the
-    # OB to not be updateable which then put the CPU into state
-    # it can't boot because OB are not finished updating.
-    # so we change the boot mode rigth after flashing which prevents
-    # the CPU from running the bootloader. And thn we program the option bytes.
+    # Even when trying to keep the CPU halted while DevProExe runs,
+    # sometimes the CPU unhalts and the bootloader runs.
+    # That can prevent option bytes from being updated and leave the CPU
+    # in a state where it cannot boot because OB updates are incomplete.
+    # So we switch the boot mode right after flashing to prevent
+    # the CPU from running the bootloader, then program the option bytes.
     input("Set BOOT0=1. Press Enter to continue...")
     stop_bootloader_hold_thread()
 
