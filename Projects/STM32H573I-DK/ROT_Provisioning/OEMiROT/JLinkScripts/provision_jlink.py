@@ -285,10 +285,8 @@ def program_option_bytes_step1():
     # Otherwise you will likely be programming NS zones.
     write_ob("FLASH_OPTSR2", 0xB4000034)
 
-    # To write secure flash watermarks (FLASH_SECWMxR) we must program
-    # the secure boot register but it must be left unlocked.
     # 0xC0000 --> Bootloader secure boot address. Must match what we plan to flash or flashing will fail.
-    # 0xC3 --> Leave it unlocked.
+    # 0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
     write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x17))
