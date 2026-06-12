@@ -32,6 +32,7 @@ DEBUGGER_ACCESS_CERT = DEBUGGER_ACCESS_ROOT_DIR / "Certificates/cert_root.b64"
 JLINK_EXE = "JLinkExe"
 DEVPRO_EXE = "DevProExe"
 DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex"
+STM32_PROGRAMMER_CLI_EXE = "STM32_Programmer_CLI"
 CPU_HALTED_LOG_LINE = "CPU halted."
 HALT_WAIT_TIMEOUT_S = 30
 
@@ -39,7 +40,12 @@ def subproc_run(
     cmd,
     on_output_line: Callable[[str], None] | None = None,
     on_process_start: Callable[[subprocess.Popen], None] | None = None,
+    error_watch_terms = ["error"],
+    error_ignore_terms = [],
 ) -> str:
+    error_watch_terms_cf = [term.casefold() for term in error_watch_terms]
+    error_ignore_terms_cf = [term.casefold() for term in error_ignore_terms]
+
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -59,7 +65,11 @@ def subproc_run(
         if on_output_line is not None:
             on_output_line(line)
 
-        if "error" in line.casefold():
+        line_cf = line.casefold()
+        has_watched_error = any(term in line_cf for term in error_watch_terms_cf)
+        has_ignored_error = any(term in line_cf for term in error_ignore_terms_cf)
+
+        if has_watched_error and not has_ignored_error:
             process.kill()
             raise RuntimeError("ERROR Found in JLINK script")
 
@@ -160,6 +170,31 @@ def run_devpro_operation(operation, config_vals=None) -> str:
         for key, value in config_vals.items():
             cmd.extend(["-SetConfigVal", f"{key}={value}"])
     return subproc_run(cmd)
+
+
+def run_stm32_programmer_cli(args=None, connection=None) -> str:
+    cmd = [STM32_PROGRAMMER_CLI_EXE]
+
+    # Default connection for ST-LINK/J-LINK based OB programming from CLI.
+    if connection is None:
+        connection = {
+            "port": "JLINK",
+            "speed": "reliable",
+            "ap": "0",
+            "mode": "Hotplug",
+        }
+
+    connect_kv = " ".join(f"{k}={v}" for k, v in connection.items())
+    cmd.extend(["-c", connect_kv])
+
+    if args:
+        cmd.extend(args)
+
+    return subproc_run(
+        cmd,
+        # This error happens with JLINK debugger all the time.
+        error_ignore_terms=["error: st-link interface not available"],
+    )
 
 def program_obkeys():
     print(inspect.currentframe().f_code.co_name)
@@ -265,8 +300,14 @@ def program_option_bytes_step2():
     write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x13))
     write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
 
-    # Need to lock the secure boot address otherwise MCU won't boot
-    write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
+def program_option_bytes_step3():
+    print(inspect.currentframe().f_code.co_name)
+
+    # Need to lcok the secboot register for the MCU to boot properly.
+    # doing this from JLINK is very flaky majority time it fails.
+    # write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
+
+    run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
 
 def program_option_bytes_defaults():
     print(inspect.currentframe().f_code.co_name)
@@ -380,14 +421,7 @@ def program_option_bytes_step1_with_secbootr_validations():
     program_option_bytes_step1()
     validate_secbootr(0x0C0000C3)
 
-def program_option_bytes_step2_with_secbootr_validations():
-    program_option_bytes_step2()
-    validate_secbootr(0x0C0000B4)
-
 def main():
-
-    # program_option_bytes_step2_with_secbootr_validations()
-    # return
     # try:
     #     full_regression() # only work if device was >= PROVISIONED
     # finally:
@@ -416,10 +450,9 @@ def main():
 
     # MCU is halted here. Now lock SECBOOTR while still halted to prevent firmware
     # from modifying it during early boot.
-    try:
-        program_option_bytes_step2_with_secbootr_validations() # Let it continue if it fails
-    finally:
-        stop_bootloader_hold_thread()
+    program_option_bytes_step2()
+    program_option_bytes_step3()
+    stop_bootloader_hold_thread()
 
     # OBK can only be programmed in PROVISIONING state!!!
     # Even the datasheet says this.
