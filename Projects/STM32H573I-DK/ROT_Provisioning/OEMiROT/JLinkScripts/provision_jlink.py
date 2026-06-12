@@ -157,7 +157,7 @@ def generate_jlink_dump_first_32_bytes_script(output_dir):
     script_content = [
         "connect",
         "halt",
-        "mem8 0x8028000, 32",
+        "mem8 0x08000000, 32",
         "exit",
     ]
 
@@ -173,6 +173,29 @@ def dump_first_32_bytes_at_flash_base():
     with tempfile.TemporaryDirectory(prefix="dump_flash_32_bytes_") as temp_dir:
         script_path = generate_jlink_dump_first_32_bytes_script(output_dir=Path(temp_dir))
         return run_jlink_script(script_path, "Dumping first 32 bytes at 0x08000000...")
+
+
+def generate_jlink_dump_ram_first_32_bytes_script(output_dir):
+    output_dir = Path(output_dir)
+    script_content = [
+        "connect",
+        "halt",
+        "mem8 0x20000000, 32",
+        "exit",
+    ]
+
+    script_path = output_dir / "dump_ram_first_32_bytes.jlink"
+    with open(script_path, 'w') as f:
+        f.write('\n'.join(script_content))
+
+    print(f"Generated J-Link RAM dump script: {script_path}")
+    return script_path
+
+
+def dump_first_32_bytes_at_ram_base():
+    with tempfile.TemporaryDirectory(prefix="dump_ram_32_bytes_") as temp_dir:
+        script_path = generate_jlink_dump_ram_first_32_bytes_script(output_dir=Path(temp_dir))
+        return run_jlink_script(script_path, "Dumping first 32 bytes at 0x20000000...")
 
 
 def merge_hex_images(boot_hex_file, app_hex_file, output_hex_file):
@@ -449,9 +472,10 @@ def program_option_bytes_step1_with_secbootr_validations():
     validate_secbootr(0x0C0000C3)
 
 def main():
-    debugger_open_intrusive_level3()
-    dump_first_32_bytes_at_flash_base()
-    return
+    # debugger_open_intrusive_level3()
+    # dump_first_32_bytes_at_flash_base()
+    # dump_first_32_bytes_at_ram_base()
+    # return
     # try:
     #     full_regression() # only work if device was >= PROVISIONED
     # finally:
