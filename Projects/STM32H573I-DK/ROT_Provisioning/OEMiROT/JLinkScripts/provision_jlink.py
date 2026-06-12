@@ -349,8 +349,7 @@ def program_firmware():
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
         temp_path=Path(temp_dir)
 
-        # Do not merge these HEX files. The bootloader must always be flashed last.
-        # The ST provisioning script enforces this sequence too.
+        # Ensure that bootloader flashed last and NEVER RUN!! CPU must stay halted always
 
         script_path = generate_jlink_flash_script(output_dir=temp_path, image_file=str(ROT_TZ_S_APP_INIT_SIGN_HEX))
         run_jlink_script(script_path, "Programming App...")
