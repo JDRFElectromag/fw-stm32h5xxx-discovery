@@ -558,6 +558,8 @@ int32_t boot_platform_init(void)
     LL_SECU_DisableCleanMpu();
 #endif
 
+    //todo check and apply ob bytes here!
+
     /* Apply Run time Protection */
     LL_SECU_ApplyRunTimeProtections();
     /* Check static protections */
