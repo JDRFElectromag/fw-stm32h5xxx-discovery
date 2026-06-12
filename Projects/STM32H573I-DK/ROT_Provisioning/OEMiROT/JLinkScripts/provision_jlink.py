@@ -308,6 +308,7 @@ def program_option_bytes_step3():
     # Need to lock the SECBOOT register for the MCU to boot properly.
     # Doing this from J-Link is flaky, and it often fails.
     # It reports success, but readback can still be wrong.
+    # The firmware will not boot without this byte lock being applied.
     # write_ob("FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
 
     run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
@@ -447,8 +448,9 @@ def main():
     # sometimes the CPU unhalts and the bootloader runs.
     # That can prevent option bytes from being updated and leave the CPU
     # in a state where it cannot boot because OB updates are incomplete.
-    # So we switch the boot mode right after flashing to prevent
-    # the CPU from running the bootloader, then program the option bytes.
+    # So we switch the boot mode right after flashing while JLINK still
+    # has the CPU halted but before DevProExe runs.
+    # This ensure that bootloader can never run which what we want.
     input("Set BOOT0=1. Press Enter to continue...")
     stop_bootloader_hold_thread()
 
@@ -466,7 +468,7 @@ def main():
 
     # MCU will not boot in PROVISIONING you must transition
     # to any state > PROVISIONING. Just don't use LOCK state.
-    # print("Setting product state to PROVISIONED")
+    print("Setting product state to PROVISIONED")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
 
     input("Set BOOT0=0. Hard reset")
