@@ -345,10 +345,10 @@ def program_option_bytes_step1():
 
 def program_option_bytes_step2():
     print(inspect.currentframe().f_code.co_name)
-    write_ob("FLASH_WRP1R", 0xFFFFFFF8)
+    write_ob("FLASH_WRP1R", 0xFFFFFFFC)
     write_ob("FLASH_WRP2R", 0xFFFFFFFF)
 
-    write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x13))
+    write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x0F))
     write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
 
 def program_option_bytes_secure_boot_lock():
@@ -482,16 +482,15 @@ def main():
     # dump_first_32_bytes_at_ram_base()
     # return
 
-    # try:
-    #     full_regression()
-    # except Exception as e:
-    #     # Ignore return code < 0 just give the MCU sometime and mass erase it
-    #     print(e);
-    #     print("Sleeping for a bit will mass erase")
-    #     time.sleep(5)
-    # finally:
-    #     mass_erase()
-    # return
+    if 0:
+        try:
+            full_regression()
+        except Exception as e:
+            print("Power down debugger and board. Ensure MCU looses all power and rerun")
+            print(e);
+        finally:
+            mass_erase()
+        return
 
     input("Set BOOT0=0. Press Enter to continue...")
 
