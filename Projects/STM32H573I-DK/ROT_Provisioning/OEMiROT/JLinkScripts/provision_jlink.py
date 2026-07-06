@@ -482,15 +482,13 @@ def main():
     # dump_first_32_bytes_at_ram_base()
     # return
 
-    if 0:
+    if 1:
         try:
             full_regression()
+            mass_erase()
         except Exception as e:
             print("Power down debugger and board. Ensure MCU looses all power and rerun")
-            print(e);
-        finally:
-            mass_erase()
-        return
+            raise
 
     input("Set BOOT0=0. Press Enter to continue...")
 
