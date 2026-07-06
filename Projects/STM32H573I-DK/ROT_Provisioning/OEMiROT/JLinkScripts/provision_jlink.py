@@ -482,16 +482,15 @@ def main():
     # dump_first_32_bytes_at_ram_base()
     # return
 
-    try:
-        full_regression()
-        mass_erase()
-    except:
-        # if exception is thrown redo regression
-        # it won't be thrown again
-        full_regression()
-        mass_erase()
-
-    return
+    # try:
+    #     full_regression()
+    #     mass_erase()
+    # except:
+    #     # if exception is thrown redo regression
+    #     # it won't be thrown again
+    #     full_regression()
+    #     mass_erase()
+    # return
 
     input("Set BOOT0=0. Press Enter to continue...")
 
