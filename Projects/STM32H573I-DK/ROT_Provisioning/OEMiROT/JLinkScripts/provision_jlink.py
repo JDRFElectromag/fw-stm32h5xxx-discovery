@@ -20,8 +20,12 @@ DEVICE = "STM32H573IIKxQ"
 INTERFACE = "SWD"
 SPEED = "4000"
 
-OEMIROT_BOOT_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Boot/Binary/OEMiROT_Boot.hex"
-ROT_TZ_S_APP_INIT_SIGN_HEX = CUBE_FW_PATH / "Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Appli/Binary/rot_tz_s_app_init_sign.hex"
+OEMIROT_BOOT_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
+OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
+
+ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/autonomySensor_blinky_sec_init_signed_stm32h573i-dk.hex"
+ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
+
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.
 OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Encryption and authentication keys use defaults and were never updated.
 OEMIROT_DATA_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Data.obk" # Not used directly, but must be programmed or hash checks fail.
@@ -316,6 +320,7 @@ def pack_start_end(start: int, end: int) -> int:
 def pack_secboot(lock: int, secbootadd: int) -> int:
     return ((secbootadd & 0x00FFFFFF) << 8) | (lock & 0xFF)
 
+# TODO these need updating
 def program_option_bytes_step1():
     print(inspect.currentframe().f_code.co_name)
     """
@@ -476,11 +481,17 @@ def main():
     # dump_first_32_bytes_at_flash_base()
     # dump_first_32_bytes_at_ram_base()
     # return
-    # try:
-    #     full_regression() # only work if device was >= PROVISIONED
-    # finally:
-    #     mass_erase()
-    # return
+
+    try:
+        full_regression()
+        mass_erase()
+    except:
+        # if exception is thrown redo regression
+        # it won't be thrown again
+        full_regression()
+        mass_erase()
+
+    return
 
     input("Set BOOT0=0. Press Enter to continue...")
 
