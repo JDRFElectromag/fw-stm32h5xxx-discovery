@@ -340,7 +340,7 @@ def program_option_bytes_step1():
     # 0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
-    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x17))
+    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x13))
     write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
 
 def program_option_bytes_step2():
@@ -484,11 +484,12 @@ def main():
 
     # try:
     #     full_regression()
-    #     mass_erase()
-    # except:
-    #     # if exception is thrown redo regression
-    #     # it won't be thrown again
-    #     full_regression()
+    # except Exception as e:
+    #     # Ignore return code < 0 just give the MCU sometime and mass erase it
+    #     print(e);
+    #     print("Sleeping for a bit will mass erase")
+    #     time.sleep(5)
+    # finally:
     #     mass_erase()
     # return
 
