@@ -20,9 +20,14 @@ DEVICE = "STM32H573IIKxQ"
 INTERFACE = "SWD"
 SPEED = "4000"
 
+# Ensure xml matches the map file for application
+APP_INIT_IMG_CONFGS = "/home/desmond/workspace/dev/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/ROT_Provisioning/OEMiROT/Images/OEMiROT_S_Code_Init_Image.xml"
+APP_INIT_IMG_CONFGS = Path(APP_INIT_IMG_CONFGS)
+
 OEMIROT_BOOT_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
 OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
 
+# Signed application image with header
 ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/autonomySensor_blinky_sec_init_signed_stm32h573i-dk.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
 
@@ -487,10 +492,15 @@ def main():
             full_regression()
             mass_erase()
         except Exception as e:
-            print("Power down debugger and board. Ensure MCU looses all power and rerun")
+            print("Power cycle required. Ensure full power down occurs and retry.")
             raise
 
-    input("Set BOOT0=0. Press Enter to continue...")
+    if 1:
+        # Inject the header with signatures. mcuboot has python script to do this too.
+        subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
+
+    # Required just taking too long fo flash each time
+    # input("Set BOOT0=0. Press Enter to continue...")
 
     # Option bytes must be set first; otherwise address mapping will be wrong.
     # TZEN=1 will cause a remap of flash.
@@ -513,7 +523,11 @@ def main():
     stop_bootloader_hold_thread()
 
     # We can flash OBs when BOOT0=1. MCU boot won't be runnng
-    # as CPU is in ROM flash. So we don't run nto any issue
+    # as CPU is in ROM flash. So we don't run nto any issue.
+    # FYI if you leave BOOT=0 and do this it will not complain
+    # it may even look like it worked this only happens if
+    # OBK already has the correct keys. It only looks like it worked
+    # becasue OBK was already provisioned.
     program_option_bytes_step2()
     program_option_bytes_secure_boot_lock()
 
