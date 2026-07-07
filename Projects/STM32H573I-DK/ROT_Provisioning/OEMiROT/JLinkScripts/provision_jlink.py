@@ -28,7 +28,7 @@ OEMIROT_BOOT_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/bootloader/
 OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
 
 # Signed application image with header
-ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_stm32h573i-dk.hex"
+ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
 
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.

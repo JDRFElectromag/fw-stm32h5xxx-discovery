@@ -114,14 +114,14 @@
 	</Param>
 	<Param>
 		<Name>Firmware binary input file</Name>
-		<Value>/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/autonomySensor_blinky_sec_stm32h573i-dk.hex</Value>
+		<Value>/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_stm32h573i-dk.hex</Value>
 		<Type>File</Type>
 		<Tooltip>Select the firmware binary file to be processed for the image generation</Tooltip>
 		<Default>../../../Applications/ROT/OEMiROT_Appli_TrustZone/Binary/rot_tz_s_app.hex</Default>
 	</Param>
 	<Output>
 		<Name>Image output file</Name>
-		<Value>/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/autonomySensor_blinky_sec_init_signed_stm32h573i-dk.hex</Value>
+		<Value>/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex</Value>
 		<Default>../../../Applications/ROT/OEMiROT_Appli_TrustZone/Binary/rot_tz_s_app_init_sign.hex</Default>
 	</Output>
   </McubootFormat>
