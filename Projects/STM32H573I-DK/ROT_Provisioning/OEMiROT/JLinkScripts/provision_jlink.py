@@ -28,7 +28,7 @@ OEMIROT_BOOT_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/bootloader/
 OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
 
 # Signed application image with header
-ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/autonomySensor_blinky_sec_init_signed_stm32h573i-dk.hex"
+ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_stm32h573i-dk.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
 
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.
@@ -325,7 +325,6 @@ def pack_start_end(start: int, end: int) -> int:
 def pack_secboot(lock: int, secbootadd: int) -> int:
     return ((secbootadd & 0x00FFFFFF) << 8) | (lock & 0xFF)
 
-# TODO these need updating
 def program_option_bytes_step1():
     print(inspect.currentframe().f_code.co_name)
     """
@@ -498,6 +497,10 @@ def main():
     if 1:
         # Inject the header with signatures. mcuboot has python script to do this too.
         subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
+
+    # If with_bootloader.ld updates then map file has new address
+    # this means we need to update option byte too. Bootloader should
+    # tell you waht ened updating.
 
     # Required just taking too long fo flash each time
     # input("Set BOOT0=0. Press Enter to continue...")
