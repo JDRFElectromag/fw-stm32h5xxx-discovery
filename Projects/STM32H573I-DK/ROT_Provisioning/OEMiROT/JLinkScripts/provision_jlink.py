@@ -503,7 +503,7 @@ def main():
     # tell you waht ened updating.
 
     # Required just taking too long fo flash each time
-    # input("Set BOOT0=0. Press Enter to continue...")
+    input("Set BOOT0=0. Press Enter to continue...")
 
     # Option bytes must be set first; otherwise address mapping will be wrong.
     # TZEN=1 will cause a remap of flash.
