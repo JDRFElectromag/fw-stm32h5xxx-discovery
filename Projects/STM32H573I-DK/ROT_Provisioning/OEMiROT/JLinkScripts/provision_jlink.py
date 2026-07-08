@@ -491,8 +491,8 @@ def main():
             full_regression()
             mass_erase()
         except Exception as e:
-            print("Power cycle required. Ensure full power down occurs and retry.")
-            raise
+            print("MCU Power Cycle required. Do full power down for 3 second and power up and wait 3 seconds")
+            return
 
     if 1:
         # Inject the header with signatures. mcuboot has python script to do this too.
