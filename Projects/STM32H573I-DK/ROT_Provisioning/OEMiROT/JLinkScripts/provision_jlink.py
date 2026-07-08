@@ -481,10 +481,11 @@ def program_option_bytes_step1_with_secbootr_validations():
     validate_secbootr(0x0C0000C3)
 
 def main():
-    # debugger_open_intrusive_level3()
-    # dump_first_32_bytes_at_flash_base()
-    # dump_first_32_bytes_at_ram_base()
-    # return
+    if 0:
+        debugger_open_intrusive_level3()
+        # dump_first_32_bytes_at_flash_base()
+        # dump_first_32_bytes_at_ram_base()
+        return
 
     if 1:
         try:
