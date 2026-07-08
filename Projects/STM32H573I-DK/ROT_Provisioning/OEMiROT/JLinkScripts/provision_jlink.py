@@ -502,7 +502,6 @@ def main():
     # this means we need to update option byte too. Bootloader should
     # tell you waht ened updating.
 
-    # Required just taking too long fo flash each time
     input("Set BOOT0=0. Press Enter to continue...")
 
     # Option bytes must be set first; otherwise address mapping will be wrong.
