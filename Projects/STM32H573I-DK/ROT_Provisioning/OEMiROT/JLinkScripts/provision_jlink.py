@@ -344,8 +344,8 @@ def program_option_bytes_step1():
     # 0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
-    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x13))
-    write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
+    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x7F))
+    write_ob("FLASH_SECWM2R", pack_start_end(0x00, 0x04))
 
 def program_option_bytes_step2():
     print(inspect.currentframe().f_code.co_name)
