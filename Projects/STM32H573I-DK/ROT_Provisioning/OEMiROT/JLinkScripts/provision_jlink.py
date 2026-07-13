@@ -21,14 +21,14 @@ INTERFACE = "SWD"
 SPEED = "4000"
 
 # Ensure xml matches the map file for application
-APP_INIT_IMG_CONFGS = "/home/desmond/workspace/dev/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/ROT_Provisioning/OEMiROT/Images/OEMiROT_S_Code_Init_Image.xml"
+APP_INIT_IMG_CONFGS = "/home/rlaswick/repos/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/ROT_Provisioning/OEMiROT/Images/OEMiROT_S_Code_Init_Image.xml"
 APP_INIT_IMG_CONFGS = Path(APP_INIT_IMG_CONFGS)
 
-OEMIROT_BOOT_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
+OEMIROT_BOOT_HEX = "/home/rlaswick/repos/fw-thor/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
 OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
 
 # Signed application image with header
-ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex"
+ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/rlaswick/repos/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
 
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.
@@ -344,8 +344,10 @@ def program_option_bytes_step1():
     # 0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
-    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x13))
-    write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
+    #write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x13))
+    #write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
+    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x7f))
+    write_ob("FLASH_SECWM2R", pack_start_end(0x00, 0x04))
 
 def program_option_bytes_step2():
     print(inspect.currentframe().f_code.co_name)
@@ -481,7 +483,7 @@ def program_option_bytes_step1_with_secbootr_validations():
     validate_secbootr(0x0C0000C3)
 
 def main():
-    if 0:
+    if 1:
         debugger_open_intrusive_level3()
         # dump_first_32_bytes_at_flash_base()
         # dump_first_32_bytes_at_ram_base()
