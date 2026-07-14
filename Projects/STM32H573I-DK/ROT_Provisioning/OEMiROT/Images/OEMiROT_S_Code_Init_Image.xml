@@ -97,7 +97,7 @@
 	</Param>
 	<Param>
 		<Name>Firmware execution area offset</Name>
-		<Value>0xC020000</Value>
+		<Value>0xC020000</Value> <!-- Must match symbol APP_PRIMARY_SLOT_START_ADDRESS from MCUBOOT map file. -->
 		<Type>Data</Type>
 		<Command>-x</Command>
 		<Hidden>1</Hidden>
