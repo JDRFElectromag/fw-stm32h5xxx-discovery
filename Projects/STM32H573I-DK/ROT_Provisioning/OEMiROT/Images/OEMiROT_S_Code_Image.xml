@@ -108,7 +108,7 @@
 	</Param>
 	<Param>
 		<Name>Firmware download area offset</Name>
-		<Value>0x8030000</Value>
+		<Value>0x8030000</Value> <!-- Must match symbol APP_SECONDARY_SLOT_START_ADDRESS from MCUBOOT map file. -->
 		<Type>Data</Type>
 		<Command>-x</Command>
 		<Hidden>1</Hidden>
