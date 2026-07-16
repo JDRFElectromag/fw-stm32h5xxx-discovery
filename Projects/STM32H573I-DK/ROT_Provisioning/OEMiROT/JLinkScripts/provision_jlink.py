@@ -1,3 +1,55 @@
+# note; this script is only for initial provisioning.
+#       we need to write a DFU module written (to load an new application into memory)
+#           - we might need 2, or a script, etc. as we need to be able to load a new app in via JTAG/JLINK during development,
+#             and via OTA.
+#       we need an OTA module.
+#
+#####################
+#
+#       Initial Provisioning:
+#           - full regression (chip erase)
+#           - we load in the bootloader at this time (in this script!).
+#           - bootloader is NOT signed or encrypted.
+#           - we write in some secure keys.
+#           - we do NOT create a DFU package for the appliation, DFU is only for UPGRADING the application in the future.
+#           - we (force) write the initial applcation directly to flash, which includes an app header (at the top (see: APP_PRIMIARY_SLOT_HEADER in linker)) which
+#               includes the signature for the application, and the starting address of the application, etc.
+#               - this is written to slot 1 (DFU ALWAYS write to slot 2).
+#               - note this application is signed, but not encrypted, using the ST Trusted packaged creator CLI).
+#                   - see the Init_Code_Config XML file.
+#
+#       DFU: build a hex application.
+#            sign and encrypt it (app header is added here by the tool:STM32TrustedPackageCreateor_CLI) (python scripts also exist: ..see path in slack)
+#               - using the non-Init_code config (OEMiROT_S_Code_Image.xml)
+#            via jlink or OTA
+#                - load it into the SECONDARY slot of MCUboot, we do this using the MCUBOOT API.
+#                   - write directly to the flash address of the secondar slot.
+#                   - then tell mcu boot that there's an upgrade available (mcuboot: boot utilies)
+#                       - see slack wiki page.
+#           - in the application layer, we need a common block that checks the health of the application.
+#               - mcuBoot: boot_set_confirmed().
+#               -our application needs to call this if we think all is well, and this marks the image as stable, so
+#                mcu boot wont revert to the previous slot on next boot.
+#               - we only need to set this flag if it's different that what's in flash. (don't wear out flash)!
+#               - check if boot_set_confimed() only writes to flash if it's different that the state you want to write.
+#
+#           DFU process has been somewhat verified via bit twiddling (jtag/jlink), but not with explicit code.
+#               - it would be necessary project, to build "blinky2" (different blink rate), and load it.
+#
+#####################
+#
+#   JTAG PORT:
+#       Once the processor has been provisioned (i.e. secured and closed) the JTAG port
+#       is locked out (although we control "how much" it's locked out.
+#       Unlike the STM32L4 (51) we can "close" the JTAG port without "locking" it out.
+#       Locked = unrecoverable.
+#       Closed = recoverable (open-able) with a security certificate.
+#
+#####################
+#
+#   DFU:
+#       Creating a DFU Package:
+
 import inspect
 import re
 import subprocess
@@ -21,31 +73,55 @@ INTERFACE = "SWD"
 SPEED = "4000"
 
 # Ensure xml matches the map file for application
+# Consumed everytime the script runs.
+# Required to created the SIGNED version of the hex file.
+# Should be made modifable as certain fields need to be dynamically updated after the build,
+#  based on the corresponding map file. (<- python scripting)
 APP_INIT_IMG_CONFGS = "/home/rlaswick/repos/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/ROT_Provisioning/OEMiROT/Images/OEMiROT_S_Code_Init_Image.xml"
 APP_INIT_IMG_CONFGS = Path(APP_INIT_IMG_CONFGS)
 
+# Absolute path required.
 OEMIROT_BOOT_HEX = "/home/rlaswick/repos/fw-thor/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
 OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
 
 # Signed application image with header
+# New hex file, that includes the applciation header that's been signed.
 ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/rlaswick/repos/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
 
+# STM Trusted Package creator takes in XML and generates these OBK files.
+# These 3 obk are development (we can use these default STM files, or create our own).
+# We need 3 new ones production builds.
+# There are matching XML files for each of these.
+# We would modifiy them and feed them to the Trusted Package Createor to generate new OBKs.
+# these only need to be generated ONCE, once for dev and once for production.
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.
 OEMIROT_CONFIG_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Config.obk" # Encryption and authentication keys use defaults and were never updated.
 OEMIROT_DATA_OBKEY = OEMIROT_DIR / "Binary/OEMiRoT_Data.obk" # Not used directly, but must be programmed or hash checks fail.
 
+# eventually, this secure key and certificate need to be control (fw-thor? azure key vault?).
+# private key = SK
+# public key = PK
+# NOTE: this key and certificate are the default ones provided by ST. We'll want our own.
 DEBUGGER_ACCESS_ROOT_DIR = CUBE_FW_PATH / "Projects/STM32H573I-DK/ROT_Provisioning/DA"
 DEBUGGER_ACCESS_SK = DEBUGGER_ACCESS_ROOT_DIR / "Keys/key_1_root.pem"
 DEBUGGER_ACCESS_CERT = DEBUGGER_ACCESS_ROOT_DIR / "Certificates/cert_root.b64"
 
 JLINK_EXE = "JLinkExe"
-DEVPRO_EXE = "DevProExe"
-DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex"
-STM32_PROGRAMMER_CLI_EXE = "STM32_Programmer_CLI"
+DEVPRO_EXE = "DevProExe" # Another JLink exe, that's needed for security stuff.
+DEVPRO_SCRIPT = "PCode_DevPro_ST_STM32H5.pex" # provided by JLink (included in the latest standard jlink download).
+                                              # pex is an actual program! jlink puts code into ram, and runs it.
+                                              # because the debugger needs the cpu to execute certain secuirty APIs / protocols.
+STM32_PROGRAMMER_CLI_EXE = "STM32_Programmer_CLI"   # this shouldn't be needed, but jlink by itself doesn't work fully/reliably with just jlink.
+                                                    # the stm programmer is FAR more stable/relible when it comes to writing option bytes.
+                                                    # speciically when writing the the SECBOOT_LOCK byte
 CPU_HALTED_LOG_LINE = "CPU halted."
-HALT_WAIT_TIMEOUT_S = 30
+HALT_WAIT_TIMEOUT_S = 30 # randon time, any time could be picked. Waiting for teh cpu to actually halt itself. IMPORTANT.
 
+
+# fancy / helper routine to run a sub process
+# prints stdout and stderro the the screen
+# aborts on error logs in scripts.
 def subproc_run(
     cmd,
     on_output_line: Callable[[str], None] | None = None,
@@ -64,6 +140,8 @@ def subproc_run(
         bufsize=1,  # line-buffered
     )
 
+    # this callback is required to keep the JLINK process open,
+    # so that the processor doesn't reset once the JLINK process ends.
     if on_process_start is not None:
         on_process_start(process)
 
@@ -325,6 +403,9 @@ def pack_start_end(start: int, end: int) -> int:
 def pack_secboot(lock: int, secbootadd: int) -> int:
     return ((secbootadd & 0x00FFFFFF) << 8) | (lock & 0xFF)
 
+
+# a very handy/useful way to view the option bytes in memory,
+# is to use the ST Cube Programmer, and use the OB section.
 def program_option_bytes_step1():
     print(inspect.currentframe().f_code.co_name)
     """
@@ -341,7 +422,7 @@ def program_option_bytes_step1():
     write_ob("FLASH_OPTSR2", 0xB4000034)
 
     # 0xC0000 --> Bootloader secure boot address. Must match what we plan to flash or flashing will fail.
-    # 0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
+    # IMPORTANT!   0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
     write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
     #write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x13))
@@ -351,7 +432,7 @@ def program_option_bytes_step1():
 
 def program_option_bytes_step2():
     print(inspect.currentframe().f_code.co_name)
-    write_ob("FLASH_WRP1R", 0xFFFFFFFC)
+    write_ob("FLASH_WRP1R", 0xFFFFFFFC) # water marks.  we'll probably need to ajust these if the linker script or map file changes.
     write_ob("FLASH_WRP2R", 0xFFFFFFFF)
 
     write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x0F))
@@ -403,6 +484,15 @@ def read_program_option_bytes():
 
     return log
 
+# write the application to flash, THEN
+# write the boot loader to flash, THEN
+# note: we could merge the 2, and just write 1 hex file.
+# note: the processor MUST not be allowed to run until both images have been flashed AND
+#       ALL of the provision steps have completed.
+# note: This routine HALTS the cpu.
+# ntoe: JLINK script is still running in a background thread.
+#       (meaning that the jlink if is still open.  remember, closing the jlink program will force reset the cpu
+#        and we don't want that!!)
 def program_firmware():
     with tempfile.TemporaryDirectory(prefix="oemirot_flash_") as temp_dir:
         temp_path=Path(temp_dir)
@@ -480,16 +570,19 @@ def validate_secbootr(expected):
 
 def program_option_bytes_step1_with_secbootr_validations():
     program_option_bytes_step1()
-    validate_secbootr(0x0C0000C3)
+    validate_secbootr(0x0C0000C3) # not necessarily needed, but it's a read back check.
+                                  # desmond was having issues at some point, so this was a check he added.
 
 def main():
-    if 1:
+    # Open a locked JTAG port
+    if 0:
         debugger_open_intrusive_level3()
         # dump_first_32_bytes_at_flash_base()
         # dump_first_32_bytes_at_ram_base()
         return
 
-    if 1:
+    # Perform a full device regression (chip erase).
+    if 0:
         try:
             full_regression()
             mass_erase()
@@ -497,9 +590,20 @@ def main():
             print("MCU Power Cycle required. Do full power down for 3 second and power up and wait 3 seconds")
             return
 
-    if 1:
-        # Inject the header with signatures. mcuboot has python script to do this too.
-        subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
+    # Inject the header with signatures. mcuboot has python script to do this too.
+    # this takes the `west build` hex file and generates the "real" hex file that we're actually going to write to flash.
+    subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
+
+
+    ###
+    # The next few steps REQUIRE the physical manuipulate of a GPIO pin (BOOT0),
+    # for headless (human less) provisioning.
+    #
+    # Note: a full hard power cycle is reuired to full regress a chip,
+    # the thought is that a human would do this physcialy i fthis needed to
+    # be done.
+    ##
+
 
     # If with_bootloader.ld updates then map file has new address
     # this means we need to update option byte too. Bootloader should
@@ -511,12 +615,16 @@ def main():
     # TZEN=1 will cause a remap of flash.
     # You also need to set the secure boot watermark at this stage.
     # Doing it later causes issues.
+    # --
+    # Step 1 is required to enable the trust zone so the next step (code loading)
+    # can be loaded into the secure area of flash, and not the default non-secure area.
     program_option_bytes_step1_with_secbootr_validations()
 
     # SECBOOTR needs to be set with the address we plan to program
     # the bootloader into as well as UNLOCK byte.
     # Without this bootlaoder programming will fail.
     stop_bootloader_hold_thread = program_firmware()
+    # cpu is halted.
 
     # Even when trying to keep the CPU halted while DevProExe runs,
     # sometimes the CPU unhalts and the bootloader runs. As DevProExe
@@ -524,7 +632,17 @@ def main():
     # To get around this switch the BOOT0 pin before we start devProExe tool.
     # This ensure that when the DevProExe tool does start to flash the OB
     # the bootloader doesn't run.
+    #---
+    # note: now that the bootloader and applciation is loaded into flash,
+    #       we need to boot into SYSMEM  (system flash? ST ROM CODE)
+    #       so the security peripherals can run.
+    #       We're actually booting into STiROT bootloader (OUR CODE we just flash WILL NOT RUN NOW, which is a good thing).
+    #       Root secure services can only be accessed in this BOOT0=1 mode.
     input("Set BOOT0=1. Press Enter to continue...")
+
+    # allow the JLINK thread to close, which will reset the cpu.
+    # we no longer need to prevent the cpu from resetting/running, so we can
+    # close the JLINK thread moving forward.
     stop_bootloader_hold_thread()
 
     # We can flash OBs when BOOT0=1. MCU boot won't be runnng
@@ -533,24 +651,43 @@ def main():
     # it may even look like it worked this only happens if
     # OBK already has the correct keys. It only looks like it worked
     # becasue OBK was already provisioned.
-    program_option_bytes_step2()
-    program_option_bytes_secure_boot_lock()
+    # --
+    # Hide the bootloader memory space.
+    program_option_bytes_step2() # part 1: this can be done with Jlink
+    program_option_bytes_secure_boot_lock() # part 2: this part has to be done with the ST programmer!
+    # it might be worth while reporting this bug to JLINK
 
     # OBK can only be programmed in PROVISIONING state!!!
     # Even the datasheet says this.
+    # --
+    # We still don't want the cpu to run yet, as no secure keys have been loaded.
+    # We now need to put the processor into PROVISIONING state.
+    # --
+    # We were in the OPEN state prevously.
     print("Setting product state to PROVISIONING")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
 
+    # Actually write the 3 OBK keys/files into the processor.
+    # Root secure services puts these keys where they need to be.
     program_obkeys()
 
     # MCU will not boot in PROVISIONING you must transition
     # to any state > PROVISIONING. Just don't use LOCK state.
     print("Setting product state to PROVISIONED")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
+    # --
+    # we might want to be in the CLOSED state for production builds,
+    # but PROVISIONED is likely acceptable for devleopment builds.
 
+    # we want to soft reset here, but ensure the POR subsystem is hit, so
+    # use the RESET button on the dev kit.
+    # JLINK has a reset config flag so it's reset command can be behave differently.
+    # Here we want the user to change BOOT0 to 0, the hit the reset button.
+    # We'll have to provide an option for this on our JDRF boards.
+    # A hard reset might be the solution here.
     input("Set BOOT0=0. Hard reset")
-
     # reset_mcu()
+
     # uart_run_term(port="/dev/ttyACM0")
 
 if __name__ == "__main__":
