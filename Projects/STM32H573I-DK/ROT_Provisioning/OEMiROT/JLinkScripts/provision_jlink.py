@@ -131,8 +131,27 @@ def generate_jlink_erase_script(output_dir):
     output_dir = Path(output_dir)
     script_content = [
         "connect",
+        "RSetType = 2",
         "reset",
         "erase",
+        "exit"
+    ]
+    script_path = output_dir / "flash_images.jlink"
+    with open(script_path, 'w') as f:
+        f.write('\n'.join(script_content))
+    return script_path
+
+def generate_jlink_hard_reset_script(output_dir):
+    """
+    This assume the reset pin is routed to the JLINK
+    connector.
+    """
+    output_dir = Path(output_dir)
+    script_content = [
+        "connect",
+        "RSetType = 2", # Hard reset with reset pin
+        "reset",
+        "RSetType = 0", # Default mode, JLINK picks the best type of rest
         "exit"
     ]
     script_path = output_dir / "flash_images.jlink"
@@ -470,6 +489,12 @@ def mass_erase():
         script_path = generate_jlink_erase_script(output_dir=Path(temp_dir))
         run_jlink_script(script_path, "mass erasing...")
 
+def hard_reset():
+    print(inspect.currentframe().f_code.co_name)
+    with tempfile.TemporaryDirectory(prefix="mass_erase") as temp_dir:
+        script_path = generate_jlink_hard_reset_script(output_dir=Path(temp_dir))
+        run_jlink_script(script_path, "Hard Resetting using reset pin...")
+
 def validate_secbootr(expected):
     log = read_ob("FLASH_SECBOOTR")
     val = parse_flash_secbootr_value(log)
@@ -490,14 +515,14 @@ def main():
     if 1:
         try:
             full_regression()
+            hard_reset()
             mass_erase()
-        except Exception as e:
-            print("MCU Power Cycle required. Do full power down for 3 second and power up and wait 3 seconds")
-            return
+        except Exception:
+            print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
+        return
 
-    if 1:
-        # Inject the header with signatures. mcuboot has python script to do this too.
-        subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
+    # Update the application with Appheader and signature.
+    subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
 
     # If with_bootloader.ld updates then map file has new address
     # this means we need to update option byte too. Bootloader should
