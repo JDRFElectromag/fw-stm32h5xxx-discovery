@@ -1,3 +1,4 @@
+import argparse
 import inspect
 import re
 import subprocess
@@ -505,21 +506,15 @@ def program_option_bytes_step1_with_secbootr_validations():
     program_option_bytes_step1()
     validate_secbootr(0x0C0000C3)
 
-def main():
-    if 0:
-        debugger_open_intrusive_level3()
-        # dump_first_32_bytes_at_flash_base()
-        # dump_first_32_bytes_at_ram_base()
-        return
+def factory_reset_mcu():
+    try:
+        full_regression()
+        hard_reset()
+        mass_erase()
+    except Exception:
+        print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
 
-    if 1:
-        try:
-            full_regression()
-            hard_reset()
-            mass_erase()
-        except Exception:
-            print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
-        return
+def provision_mcu():
 
     # Update the application with Appheader and signature.
     subproc_run(["STM32TrustedPackageCreator_CLI", "-pb", str(APP_INIT_IMG_CONFGS)])
@@ -571,10 +566,42 @@ def main():
     print("Setting product state to PROVISIONED")
     run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
 
-    input("Set BOOT0=0. Hard reset")
+    input("Set BOOT0=0. Hard Reset (reset button works)")
 
-    # reset_mcu()
-    # uart_run_term(port="/dev/ttyACM0")
+def parse_cli_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--debug-access",
+        action="store_true",
+        help="Debugger Access.",
+    )
+    parser.add_argument(
+        "--factory-reset",
+        action="store_true",
+        help="Factory rest.",
+    )
+    parser.add_argument(
+        "--provision",
+        action="store_true",
+        help="Run provisioning flow only.",
+    )
+
+    return parser.parse_args()
+
+def main():
+    args = parse_cli_args()
+
+    if args.debug_access:
+        debugger_open_intrusive_level3()
+
+    if args.factory_reset:
+        # Boot0=0 otherwise it will just run but not work.
+        factory_reset_mcu()
+
+    if args.provision:
+        # Requires full factory reset to work
+        provision_mcu()
+
 
 if __name__ == "__main__":
     main()
