@@ -22,14 +22,14 @@ INTERFACE = "SWD"
 SPEED = "4000"
 
 # Ensure xml matches the map file for application
-APP_INIT_IMG_CONFGS = "/home/desmond/workspace/dev/fw-stm32h5xxx-discovery/Projects/STM32H573I-DK/ROT_Provisioning/OEMiROT/Images/OEMiROT_S_Code_Init_Image.xml"
+APP_INIT_IMG_CONFGS = "../Images/OEMiROT_S_Code_Init_Image.xml"
 APP_INIT_IMG_CONFGS = Path(APP_INIT_IMG_CONFGS)
 
-OEMIROT_BOOT_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
+OEMIROT_BOOT_HEX = "/home/rlaswick/repos/fw-thor_stm32h5_rtt_desmond/appProcessor/bootloader/mcuboot/build/debug/stm32h573i-dk/autonomySensor_mcuboot_sec_stm32h573i-dk.hex"
 OEMIROT_BOOT_HEX = Path(OEMIROT_BOOT_HEX)
 
 # Signed application image with header
-ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/desmond/workspace/dev/fw-thor/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex"
+ROT_TZ_S_APP_INIT_SIGN_HEX = "/home/rlaswick/repos/fw-thor_stm32h5_rtt_desmond/appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/autonomySensor_blinky_with_mcuboot_sec_signed_stm32h573i-dk.hex"
 ROT_TZ_S_APP_INIT_SIGN_HEX = Path(ROT_TZ_S_APP_INIT_SIGN_HEX)
 
 DA_OBKEY = OEMIROT_DIR / "../DA/Binary/DA_Config.obk" # Use the default debug access certificates.
