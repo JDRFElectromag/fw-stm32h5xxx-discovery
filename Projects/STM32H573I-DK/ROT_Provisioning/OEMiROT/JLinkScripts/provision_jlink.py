@@ -507,19 +507,24 @@ def program_option_bytes_step1_with_secbootr_validations():
     validate_secbootr(0x0C0000C3)
 
 def factory_reset_mcu():
-    try:
-        full_regression()
+    def _hard_reset_with_sleep():
+        time.sleep(1)
         hard_reset()
-        mass_erase()
-        hard_reset()
-    except Exception:
+        time.sleep(1)
+
+    tries = 2
+    while tries > 0:
+        tries -= 1
         try:
             full_regression()
-            hard_reset()
+            _hard_reset_with_sleep()
             mass_erase()
-            hard_reset()
+            tries = 0
         except Exception:
-            print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
+            if tries <= 0:
+                print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
+        finally:
+            _hard_reset_with_sleep()
 
 def provision_mcu():
 
