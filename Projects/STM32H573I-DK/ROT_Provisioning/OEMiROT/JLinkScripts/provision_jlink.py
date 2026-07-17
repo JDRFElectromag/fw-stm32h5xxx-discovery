@@ -511,8 +511,15 @@ def factory_reset_mcu():
         full_regression()
         hard_reset()
         mass_erase()
+        hard_reset()
     except Exception:
-        print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
+        try:
+            full_regression()
+            hard_reset()
+            mass_erase()
+            hard_reset()
+        except Exception:
+            print("MCU Power Cycle required. Power OFF for 2 seconds. Power ON and wait for debugger lights to stabilize.")
 
 def provision_mcu():
 
