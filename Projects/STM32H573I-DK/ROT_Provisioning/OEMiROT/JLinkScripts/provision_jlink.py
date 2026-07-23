@@ -17,7 +17,7 @@ JLINK_SCRIPTS_DIR = SCRIPT_DIR
 OEMIROT_DIR = SCRIPT_DIR.parent
 CUBE_FW_PATH = SCRIPT_DIR / "../../../../.."
 
-DEVICE = "STM32H573IIKxQ"
+DEVICE = "STM32H573MI"
 INTERFACE = "SWD"
 SPEED = "4000"
 
@@ -181,16 +181,16 @@ def generate_jlink_flash_script(output_dir, image_file, is_hold_halt=False):
     return script_path
 
 
-def generate_jlink_dump_first_32_bytes_script(output_dir):
+def generate_jlink_dump_n_bytes_script(output_dir, b, n):
     output_dir = Path(output_dir)
     script_content = [
         "connect",
         "halt",
-        "mem8 0x08000000, 32",
+        f"mem8 {hex(b)}, {n}",
         "exit",
     ]
 
-    script_path = output_dir / "dump_first_32_bytes.jlink"
+    script_path = output_dir / "dump_n_bytes.jlink"
     with open(script_path, 'w') as f:
         f.write('\n'.join(script_content))
 
@@ -198,10 +198,31 @@ def generate_jlink_dump_first_32_bytes_script(output_dir):
     return script_path
 
 
-def dump_first_32_bytes_at_flash_base():
+def dump_first_n_bytes_at_flash_base(b, n):
     with tempfile.TemporaryDirectory(prefix="dump_flash_32_bytes_") as temp_dir:
-        script_path = generate_jlink_dump_first_32_bytes_script(output_dir=Path(temp_dir))
-        return run_jlink_script(script_path, "Dumping first 32 bytes at 0x08000000...")
+        script_path = generate_jlink_dump_n_bytes_script(output_dir=Path(temp_dir), b=b, n=n)
+        return run_jlink_script(script_path, f"Dumping first {n} bytes at {hex(b)}...")
+
+def generate_jlink_write_1_byte_script(output_dir, b, data):
+    output_dir = Path(output_dir)
+    script_content = [
+        "connect",
+        "halt",
+        f"W8 {hex(b)}, {hex(data)}",
+        "exit",
+    ]
+
+    script_path = output_dir / "write_1_byte.jlink"
+    with open(script_path, 'w') as f:
+        f.write('\n'.join(script_content))
+
+    print(f"Generated J-Link dump script: {script_path}")
+    return script_path
+
+def write_1_byte_at_flash_base(b, data):
+    with tempfile.TemporaryDirectory(prefix="dump_flash_32_bytes_") as temp_dir:
+        script_path = generate_jlink_write_1_byte_script(output_dir=Path(temp_dir), b=b, data=data)
+        return run_jlink_script(script_path, f"Writing {hex(data)} bytes at {hex(b)}...")
 
 
 def generate_jlink_dump_ram_first_32_bytes_script(output_dir):
@@ -338,6 +359,9 @@ def full_regression():
 
 def debugger_open_intrusive_level3():
     debug_access_auth_with_cert(perm="Level 3 Intrusive Debug")
+    # dump_first_n_bytes_at_flash_base(0x8020000, 1)
+    # write_1_byte_at_flash_base(0x8020000, 0xFF)
+    # dump_first_n_bytes_at_flash_base(0x8020000, 1)
 
 def pack_start_end(start: int, end: int) -> int:
     return ((end & 0xFF) << 16) | (start & 0xFF)
@@ -358,22 +382,23 @@ def program_option_bytes_step1():
     """
     # TrustZone affects flash mapping, so it must be enabled first.
     # Otherwise you will likely be programming NS zones.
-    write_ob("FLASH_OPTSR2", 0xB4000034)
+    # write_ob("FLASH_OPTSR2", 0xB4000034)
 
     # 0xC0000 --> Bootloader secure boot address. Must match what we plan to flash or flashing will fail.
     # 0xC3 --> Leave it unlocked. otherwise can't flash bootloader or watermarks
-    write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
+    # write_ob("FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
 
-    write_ob("FLASH_SECWM1R", pack_start_end(0x00, 0x7F))
-    write_ob("FLASH_SECWM2R", pack_start_end(0x00, 0x04))
+    # write_ob("FLASH_SECWM1R", pack_start_end(0x7F, 0x00)) # Disabled
+    # write_ob("FLASH_SECWM2R", pack_start_end(0x7F, 0x00)) # Disabled
 
 def program_option_bytes_step2():
     print(inspect.currentframe().f_code.co_name)
-    write_ob("FLASH_WRP1R", 0xFFFFFFFC)
-    write_ob("FLASH_WRP2R", 0xFFFFFFFF)
 
-    write_ob("FLASH_HDP1R", pack_start_end(0x00, 0x0F))
-    write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00))
+    # write_ob("FLASH_WRP1R", 0xFFFFFFFF) # Disabled
+    # write_ob("FLASH_WRP2R", 0xFFFFFFFF) # Disabled
+
+    # write_ob("FLASH_HDP1R", pack_start_end(0x7F, 0x00)) # Disabled
+    # write_ob("FLASH_HDP2R", pack_start_end(0x7F, 0x00)) # Disabled
 
 def program_option_bytes_secure_boot_lock():
     print(inspect.currentframe().f_code.co_name)
@@ -387,7 +412,7 @@ def program_option_bytes_secure_boot_lock():
 
     # Using JLINK and STM32 cube programmer flashing it makes it work.
     # Unsure why maybe STLINK is using there own ram loaders
-    run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
+    # run_stm32_programmer_cli(args=["-ob", "SECBOOT_LOCK=0xB4"])
 
 def program_option_bytes_defaults():
     print(inspect.currentframe().f_code.co_name)
@@ -504,7 +529,7 @@ def validate_secbootr(expected):
 
 def program_option_bytes_step1_with_secbootr_validations():
     program_option_bytes_step1()
-    validate_secbootr(0x0C0000C3)
+    # validate_secbootr(0x0C0000C3)
 
 def factory_reset_mcu():
     def _hard_reset_with_sleep():
@@ -568,15 +593,15 @@ def provision_mcu():
 
     # OBK can only be programmed in PROVISIONING state!!!
     # Even the datasheet says this.
-    print("Setting product state to PROVISIONING")
-    run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
+    # # print("Setting product state to PROVISIONING")
+    # run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONING"})
 
-    program_obkeys()
+    # program_obkeys()
 
     # MCU will not boot in PROVISIONING you must transition
     # to any state > PROVISIONING. Just don't use LOCK state.
-    print("Setting product state to PROVISIONED")
-    run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
+    # print("Setting product state to PROVISIONED")
+    # run_devpro_operation("SetDeviceState", {"ProdState": "PROVISIONED"})
 
     input("Set BOOT0=0. Hard Reset (reset button works)")
 
