@@ -130,17 +130,79 @@ def assert_open_state(connection: str, where: str) -> None:
         )
 
 
-def program_obk(connection: str, obk: Path) -> None:
-    """
-    Program OBK via SDP (Secure Data Programming).
-    Multiple halt guards ensure core stays halted across reset and SDP operations.
-    UR mode connection prevents core from running during ST-LINK reconnects.
-    """
-    halt_core(connection)
-    halt_core(connection)
-    run_cli(["-c", connection, "-sdp", str(obk)])
-    halt_core(connection)
+def write_ob(connection: str, register_name: str, value: int) -> None:
+    """Write option byte register."""
+    value_hex = f"0x{value:08X}"
+    print(f"Writing OB: {register_name} = {value_hex}")
+    run_cli(["-c", connection, "-ob", f"{register_name}={value_hex}"])
 
+
+def read_ob(connection: str, register_name: str) -> str:
+    """Read option byte register."""
+    print(f"Reading OB: {register_name}")
+    proc = run_cli(["-c", connection, "-ob", register_name, "displ"], check=False)
+    return ((proc.stdout or "") + "\n" + (proc.stderr or ""))
+
+
+def pack_start_end(start: int, end: int) -> int:
+    """Pack watermark start/end into register value."""
+    return ((end & 0xFF) << 16) | (start & 0xFF)
+
+
+def pack_secboot(lock: int, secbootadd: int) -> int:
+    """Pack SECBOOT_LOCK and secure boot address into register value."""
+    return ((secbootadd & 0x00FFFFFF) << 8) | (lock & 0xFF)
+
+
+def program_option_bytes_step1(connection: str) -> None:
+    """
+    Program critical option bytes that affect memory mapping.
+    Must be done before firmware programming.
+    - FLASH_OPTSR2: Enable TrustZone (TZEN=0xB4)
+    - FLASH_SECBOOTR: Secure boot address (0xC0000) + unlocked (0xC3)
+    - FLASH_SECWM1R/2R: Secure watermarks disabled
+    """
+    print("Programming option bytes step 1 (TrustZone + secure boot config)...")
+
+    # TZEN=0xB4 enables TrustZone
+    # SRAM1_3_RST=1, SRAM3_ECC=1, SRAM2_ECC=0, BKPRAM_ECC=1
+    write_ob(connection, "FLASH_OPTSR2", 0xB4000034)
+
+    # Secure boot at 0xC0000, unlocked (0xC3) to allow programming
+    write_ob(connection, "FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
+
+    # Disable secure watermarks (start=0x7F > end=0x00 means disabled)
+    write_ob(connection, "FLASH_SECWM1R", pack_start_end(0x7F, 0x00))
+    write_ob(connection, "FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
+
+
+def program_option_bytes_step2(connection: str) -> None:
+    """
+    Program additional option bytes after firmware is flashed.
+    - FLASH_WRP1R/2R: Write protection disabled
+    - FLASH_HDP1R/2R: Hide protection disabled
+    """
+    print("Programming option bytes step 2 (write/hide protection)...")
+
+    # Disable write protection
+    write_ob(connection, "FLASH_WRP1R", 0xFFFFFFFF)
+    write_ob(connection, "FLASH_WRP2R", 0xFFFFFFFF)
+
+    # Disable hide protection (start=0x7F > end=0x00 means disabled)
+    write_ob(connection, "FLASH_HDP1R", pack_start_end(0x7F, 0x00))
+    write_ob(connection, "FLASH_HDP2R", pack_start_end(0x7F, 0x00))
+
+
+def program_option_bytes_secure_boot_lock(connection: str) -> None:
+    """
+    Lock the secure boot register after firmware is programmed.
+    Changes SECBOOT_LOCK from 0xC3 (unlocked) to 0xB4 (locked).
+    """
+    print("Locking secure boot option byte...")
+    # write_ob(connection, "FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
+
+def program_obk(connection: str, obk: Path) -> None:
+    run_cli(["-c", connection, "-sdp", str(obk)])
 
 def prompt_boot0_position(position: int) -> None:
     if position not in (0, 1):
@@ -392,28 +454,43 @@ def main() -> int:
             require_files("signed image", [app_signed_hex])
             merge_hex_files(boot_hex, app_signed_hex, merged_hex)
             require_files("merged image", [merged_hex])
-            print(f"Programming merged HEX: {merged_hex}")
 
-            # Reset, halt and program the hex file keeping the core halted afterwards
-            assert_open_state(provision_connection, "provision start")
+            print("\n=== Step 1: Programming critical option bytes ===")
+            assert_open_state(connection, "before OB step 1")
             hard_reset(provision_connection)
             halt_core(provision_connection)
             mass_erase(provision_connection)
+            program_option_bytes_step1(provision_connection)
             halt_core(provision_connection) # Just for sanity core shouldn't be running
+
+            # Program firmware with core kept halted
+            print(f"\n=== Step 2: Programming firmware ===")
+            print(f"Programming merged HEX: {merged_hex}")
             program_hex(provision_connection, merged_hex)
 
         # BOOT0 high for OBK provisioning stage.
         prompt_boot0_position(1)
 
+        # Program option bytes step 2: write/hide protection
+        # Done after firmware with BOOT0=1 to prevent bootloader from running
+        print("\n=== Step 3: Programming additional option bytes ===")
+        program_option_bytes_step2(provision_connection)
+
+        # Lock the secure boot register so MCU will boot properly
+        print("\n=== Step 4: Locking secure boot register ===")
+        program_option_bytes_secure_boot_lock(provision_connection)
+
+        # Program OBKs using system bootloader (BOOT0=1)
+        print("\n=== Step 5: Programming OBK files ===")
         for obk in obk_files:
             print(f"Provisioning OBK via SDP: {obk}")
-            program_obk(provision_connection, obk)
+            program_obk(connection, obk)
 
         # Return BOOT0 to normal boot position.
         prompt_boot0_position(0)
 
         # Verify one last time that we're still in OPEN state and halted.
-        assert_open_state(provision_connection, "final verification")
+        assert_open_state(connection, "final verification")
         print("Provisioning completed with product state kept OPEN.")
 
     return 0
