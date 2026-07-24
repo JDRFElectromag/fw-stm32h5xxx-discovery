@@ -259,6 +259,9 @@ def create_temp_signed_image_xml(
     header_size: int = 0x400,
 ) -> Path:
     """Create a temporary XML with updated input/output/offset for TPC signing."""
+    # Register XML namespaces to preserve them when writing
+    ET.register_namespace('xsi', 'http://www.w3.org/2001/XMLSchema-instance')
+    
     tree = ET.parse(base_xml)
     root = tree.getroot()
 
@@ -274,7 +277,8 @@ def create_temp_signed_image_xml(
     _set_xml_param_value(root, "Firmware execution area offset", f"0x{exec_offset:X}")
     _set_xml_output_value(root, "Image output file", str(image_output_hex))
 
-    tree.write(output_xml, encoding="UTF-8", xml_declaration=True)
+    # Write XML with proper formatting for TPC tool
+    tree.write(output_xml, encoding="utf-8", xml_declaration=True, method="xml")
     return output_xml
 
 
