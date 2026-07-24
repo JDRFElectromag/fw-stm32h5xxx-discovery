@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,8 +29,8 @@ def build_connection_arg(speed: str, ap: str, mode: str) -> str:
 
 def detect_open_state(connection: str) -> bool:
     proc = run_cmd([CLI, "-c", connection, "-ob", "displ"], check=False)
-    out = (proc.stdout or "").upper()
-    return "PRODUCT_STATE" in out and "OPEN" in out
+    out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).upper()
+    return bool(re.search(r"PRODUCT_STATE[^\n]*OPEN", out))
 
 
 def resolve_default_obk_files(script_dir: Path) -> list[Path]:
@@ -60,7 +61,7 @@ def main() -> int:
         print("Missing OBK files:", file=sys.stderr)
         for p in missing:
             print(f"  - {p}", file=sys.stderr)
-        return 2
+        return
 
     print("Checking connectivity...")
     run_cmd([CLI, "-c", connection])
@@ -69,14 +70,15 @@ def main() -> int:
     is_open = detect_open_state(connection)
 
     if not is_open:
-        print("Regress the device manually")
+        print("Could not confirm OPEN state. Regress the device manually.", file=sys.stderr)
+        return
 
     for obk in obk_files:
         print(f"Provisioning OBK: {obk}")
+        run_cmd([CLI, "-c", connection, "-hardRst"])
         run_cmd([CLI, "-c", connection, "-sdp", str(obk)])
 
     print("OBK provisioning sequence completed.")
 
-
 if __name__ == "__main__":
-    raise main()
+    main()
