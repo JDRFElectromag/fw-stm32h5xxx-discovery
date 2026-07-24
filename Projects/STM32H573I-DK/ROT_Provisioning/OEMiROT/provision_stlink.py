@@ -368,7 +368,7 @@ def parse_cli_args() -> argparse.Namespace:
 
     # ST-LINK connection arguments.
     parser.add_argument("--speed", default="reliable", help="SWD speed value for STM32_Programmer_CLI")
-    parser.add_argument("--ap", default="1", help="SWD AP index")
+    parser.add_argument("--ap", default="0", help="SWD AP index")
     parser.add_argument("--mode", default="Hotplug", help="Connection mode")
 
     parser.add_argument(
