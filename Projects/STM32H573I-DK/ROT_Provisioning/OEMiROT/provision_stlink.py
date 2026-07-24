@@ -33,7 +33,7 @@ FWTHOR_APP_HEX_REL = Path(
 )
 FWTHOR_APP_INPUT_HEX_REL = Path(
     "appProcessor/applications/blinky/build/debug/stm32h573i-dk/with_mcuboot/"
-    "autonomySensor_blinky_with_mcuboot_stm32h573i-dk.hex"
+    "autonomySensor_blinky_with_mcuboot_sec_stm32h573i-dk.hex"
 )
 
 OPEN_STATE_HEX = "0XED"
@@ -261,7 +261,7 @@ def create_temp_signed_image_xml(
     """Create a temporary XML with updated input/output/offset for TPC signing."""
     # Register XML namespaces to preserve them when writing
     ET.register_namespace('xsi', 'http://www.w3.org/2001/XMLSchema-instance')
-    
+
     tree = ET.parse(base_xml)
     root = tree.getroot()
 
