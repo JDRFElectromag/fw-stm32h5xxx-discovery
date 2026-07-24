@@ -12,6 +12,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from intelhex import IntelHex
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OEMIROT_DIR = SCRIPT_DIR
@@ -167,65 +168,20 @@ def require_files(label: str, files: list[Path]) -> None:
 
 
 def merge_hex_files(boot_hex: Path, app_hex: Path, output_hex: Path) -> None:
-    """Merge bootloader and application HEX files using srec_cat."""
-    cmd = [
-        "srec_cat",
-        str(boot_hex), "-Intel",
-        str(app_hex), "-Intel",
-        "-o", str(output_hex), "-Intel",
-    ]
-    print("+", " ".join(cmd))
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"HEX merge failed with exit code {proc.returncode}. "
-            "Ensure srec_cat (SRecord) is installed."
-        )
+    print(f"+ Merging {boot_hex.name} and {app_hex.name}")
+
+    boot = IntelHex(str(boot_hex))
+    app = IntelHex(str(app_hex))
+
+    boot.merge(app, overlap='error')
+
+    boot.write_hex_file(str(output_hex))
+    print(f"  -> {output_hex.name}")
 
 
 def read_min_address_from_intel_hex(hex_file: Path) -> int:
-    """Return the minimum absolute data address in an Intel HEX file."""
-    min_addr: int | None = None
-    linear_base = 0
-    segment_base = 0
-
-    with hex_file.open("r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            if not line.startswith(":") or len(line) < 11:
-                raise RuntimeError(f"Invalid Intel HEX line in {hex_file}: {line}")
-
-            byte_count = int(line[1:3], 16)
-            address = int(line[3:7], 16)
-            record_type = int(line[7:9], 16)
-            data = line[9:9 + (byte_count * 2)]
-
-            if record_type == 0x00:
-                base = linear_base if linear_base != 0 else segment_base
-                abs_addr = base + address
-                if min_addr is None or abs_addr < min_addr:
-                    min_addr = abs_addr
-            elif record_type == 0x04:
-                # Extended linear address record: upper 16 bits.
-                linear_base = int(data, 16) << 16
-                segment_base = 0
-            elif record_type == 0x02:
-                # Extended segment address record: bits 4..19.
-                segment_base = int(data, 16) << 4
-                linear_base = 0
-            elif record_type == 0x01:
-                break
-
-    if min_addr is None:
-        raise RuntimeError(f"No data records found in HEX file: {hex_file}")
-    return min_addr
-
+    ih = IntelHex(str(hex_file))
+    return ih.minaddr()
 
 def _set_xml_param_value(root: ET.Element, param_name: str, value: str) -> None:
     for param in root.findall(".//Param"):
