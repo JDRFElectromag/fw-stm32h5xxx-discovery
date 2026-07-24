@@ -80,35 +80,35 @@ def list_probes() -> None:
     run_cli(["-l"], check=False)
 
 
-def connect(connection: str) -> None:
-    run_cli(["-c", connection])
+def connect(provision_connection: str) -> None:
+    run_cli(["-c", provision_connection])
 
 
-def halt_core(connection: str) -> None:
-    """Halt the core. Use UR mode connection to prevent unhalt on disconnect."""
-    run_cli(["-c", connection, "-halt"])
+def halt_core(provision_connection: str) -> None:
+    """Halt the core. Use UR mode provision_connection to prevent unhalt on disconnect."""
+    run_cli(["-c", provision_connection, "-halt"])
 
 
-def hard_reset(connection: str) -> None:
+def hard_reset(provision_connection: str) -> None:
     """Hardware reset. With UR mode, core stays under reset even on disconnect."""
-    run_cli(["-c", connection, "-hardRst"])
+    run_cli(["-c", provision_connection, "-hardRst"])
 
 
-def mass_erase(connection: str) -> None:
+def mass_erase(provision_connection: str) -> None:
     """Erase all flash. Core must be halted before and after to prevent execution."""
-    run_cli(["-c", connection, "-e", "all"])
+    run_cli(["-c", provision_connection, "-e", "all"])
 
 
-def program_hex(connection: str, image: Path) -> None:
+def program_hex(provision_connection: str, image: Path) -> None:
     """
-    Program HEX file. With UR mode connection, target stays under reset.
+    Program HEX file. With UR mode provision_connection, target stays under reset.
     Caller must halt before and after to ensure core doesn't run on reconnect.
     """
-    run_cli(["-c", connection, "-d", str(image), "-v"])
+    run_cli(["-c", provision_connection, "-d", str(image), "-v"])
 
 
-def read_ob_display(connection: str) -> str:
-    proc = run_cli(["-c", connection, "-ob", "displ"], check=False)
+def read_ob_display(provision_connection: str) -> str:
+    proc = run_cli(["-c", provision_connection, "-ob", "displ"], check=False)
     return ((proc.stdout or "") + "\n" + (proc.stderr or "")).upper()
 
 
@@ -121,8 +121,8 @@ def is_open_state(ob_text: str) -> bool:
     return False
 
 
-def assert_open_state(connection: str, where: str) -> None:
-    ob_text = read_ob_display(connection)
+def assert_open_state(provision_connection: str, where: str) -> None:
+    ob_text = read_ob_display(provision_connection)
     if not is_open_state(ob_text):
         raise RuntimeError(
             "Product state is not OPEN at "
@@ -130,14 +130,14 @@ def assert_open_state(connection: str, where: str) -> None:
         )
 
 
-def write_ob(connection: str, register_name: str, value: int) -> None:
+def write_ob(provision_connection: str, register_name: str, value: int) -> None:
     """Write option byte register."""
     value_hex = f"0x{value:08X}"
     print(f"Writing OB: {register_name} = {value_hex}")
-    run_cli(["-c", connection, "-ob", f"{register_name}={value_hex}"])
+    run_cli(["-c", provision_connection, "-ob", f"{register_name}={value_hex}"])
 
 
-def write_obs(connection: str, option_bytes: dict[str, int]) -> None:
+def write_obs(provision_connection: str, option_bytes: dict[str, int]) -> None:
     """Write multiple option byte registers in a single command."""
     if not option_bytes:
         return
@@ -147,21 +147,21 @@ def write_obs(connection: str, option_bytes: dict[str, int]) -> None:
         print(f"  {name} = 0x{value:X}")
 
     # Build command with all -ob arguments
-    cmd_args = ["-c", connection]
+    cmd_args = ["-c", provision_connection]
     for name, value in option_bytes.items():
         cmd_args.extend(["-ob", f"{name}=0x{value:X}"])
 
     run_cli(cmd_args)
 
 
-def read_ob(connection: str, register_name: str) -> str:
+def read_ob(provision_connection: str, register_name: str) -> str:
     """Read option byte register."""
     print(f"Reading OB: {register_name}")
-    proc = run_cli(["-c", connection, "-ob", register_name, "displ"], check=False)
+    proc = run_cli(["-c", provision_connection, "-ob", register_name, "displ"], check=False)
     return ((proc.stdout or "") + "\n" + (proc.stderr or ""))
 
 
-def program_option_bytes_step1(connection: str) -> None:
+def program_option_bytes_step1(provision_connection: str) -> None:
     """
     Program critical option bytes that affect memory mapping.
     Must be done before firmware programming.
@@ -172,7 +172,7 @@ def program_option_bytes_step1(connection: str) -> None:
     """
     print("Programming option bytes step 1 (TrustZone + secure boot config)...")
 
-    write_obs(connection, {
+    write_obs(provision_connection, {
         "TZEN": 0xB4,           # Enable TrustZone
         "SECBOOTADD": 0xC0000,  # Secure boot address
         "SECBOOT_LOCK": 0xC3,   # Unlocked to allow programming
@@ -183,7 +183,7 @@ def program_option_bytes_step1(connection: str) -> None:
     })
 
 
-def program_option_bytes_step2(connection: str) -> None:
+def program_option_bytes_step2(provision_connection: str) -> None:
     """
     Program additional option bytes after firmware is flashed.
     - WRPSGn1/2: Write protection disabled
@@ -191,7 +191,7 @@ def program_option_bytes_step2(connection: str) -> None:
     """
     print("Programming option bytes step 2 (write/hide protection)...")
 
-    write_obs(connection, {
+    write_obs(provision_connection, {
         "WRPSGn1": 0xFFFFFFFF,  # Disable write protection bank 1
         "WRPSGn2": 0xFFFFFFFF,  # Disable write protection bank 2
         "HDP1_STRT": 0x7F,      # Disable hide protection bank 1
@@ -201,17 +201,17 @@ def program_option_bytes_step2(connection: str) -> None:
     })
 
 
-def program_option_bytes_secure_boot_lock(connection: str) -> None:
+def program_option_bytes_secure_boot_lock(provision_connection: str) -> None:
     """
     Lock the secure boot register after firmware is programmed.
     Changes SECBOOT_LOCK from 0xC3 (unlocked) to 0xB4 (locked).
     """
     return # skip ths for now. We don't want to lock it
     print("Locking secure boot option byte...")
-    write_ob(connection, "SECBOOT_LOCK", 0xB4)
+    write_ob(provision_connection, "SECBOOT_LOCK", 0xB4)
 
-def program_obk(connection: str, obk: Path) -> None:
-    run_cli(["-c", connection, "-sdp", str(obk)])
+def program_obk(provision_connection: str, obk: Path) -> None:
+    run_cli(["-c", provision_connection, "-sdp", str(obk)])
 
 def prompt_boot0_position(position: int) -> None:
     if position not in (0, 1):
@@ -375,7 +375,7 @@ def parse_cli_args() -> argparse.Namespace:
         help="Provision DA/OEMiROT OBKs while preserving OPEN state.",
     )
 
-    # ST-LINK connection arguments.
+    # ST-LINK provision_connection arguments.
     parser.add_argument("--speed", default="reliable", help="SWD speed value for STM32_Programmer_CLI")
     parser.add_argument("--ap", default="0", help="SWD AP index")
     parser.add_argument("--mode", default="Hotplug", help="Connection mode")
@@ -395,33 +395,29 @@ def parse_cli_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_cli_args()
-    connection = build_connection(args.speed, args.ap, args.mode)
-    # During provisioning, use Under Reset (UR) mode with HWrst to ensure the core
-    # cannot run even during ST-LINK disconnect/reconnect cycles between operations.
-    # UR mode keeps the target under hardware reset, preventing code execution.
-    provision_connection = build_connection(args.speed, args.ap, "UR", "HWrst")
+    provision_connection = build_connection(args.speed, args.ap, "Hotplug")
 
     # If no action was selected, behave like a minimal health check.
     if not (args.debug_access or args.factory_reset or args.provision):
         print("No action selected. Running connectivity + OPEN-state check.")
         list_probes()
-        connect(connection)
-        assert_open_state(connection, "startup")
+        connect(provision_connection)
+        assert_open_state(provision_connection, "startup")
         print("Probe detected and OPEN state confirmed.")
         return 0
 
     if args.debug_access:
         list_probes()
-        connect(connection)
-        assert_open_state(connection, "debug-access")
+        connect(provision_connection)
+        assert_open_state(provision_connection, "debug-access")
         print("Debug-access checks completed.")
 
     if args.factory_reset:
-        connect(connection)
-        assert_open_state(connection, "factory-reset precondition")
-        mass_erase(connection)
-        hard_reset(connection)
-        assert_open_state(connection, "factory-reset postcondition")
+        connect(provision_connection)
+        assert_open_state(provision_connection, "factory-reset precondition")
+        mass_erase(provision_connection)
+        hard_reset(provision_connection)
+        assert_open_state(provision_connection, "factory-reset postcondition")
         print("Factory-reset flow completed (mass erase only).")
 
     if args.provision:
@@ -465,7 +461,7 @@ def main() -> int:
             require_files("merged image", [merged_hex])
 
             print("\n=== Step 1: Programming critical option bytes ===")
-            assert_open_state(connection, "before OB step 1")
+            assert_open_state(provision_connection, "before OB step 1")
             hard_reset(provision_connection)
             halt_core(provision_connection)
             mass_erase(provision_connection)
@@ -493,13 +489,13 @@ def main() -> int:
         print("\n=== Step 5: Programming OBK files ===")
         for obk in obk_files:
             print(f"Provisioning OBK via SDP: {obk}")
-            program_obk(connection, obk)
+            program_obk(provision_connection, obk)
 
         # Return BOOT0 to normal boot position.
         prompt_boot0_position(0)
 
         # Verify one last time that we're still in OPEN state and halted.
-        assert_open_state(connection, "final verification")
+        assert_open_state(provision_connection, "final verification")
         print("Provisioning completed with product state kept OPEN.")
 
     return 0
