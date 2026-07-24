@@ -137,6 +137,23 @@ def write_ob(connection: str, register_name: str, value: int) -> None:
     run_cli(["-c", connection, "-ob", f"{register_name}={value_hex}"])
 
 
+def write_obs(connection: str, option_bytes: dict[str, int]) -> None:
+    """Write multiple option byte registers in a single command."""
+    if not option_bytes:
+        return
+
+    print(f"Writing {len(option_bytes)} option bytes:")
+    for name, value in option_bytes.items():
+        print(f"  {name} = 0x{value:X}")
+
+    # Build command with all -ob arguments
+    cmd_args = ["-c", connection]
+    for name, value in option_bytes.items():
+        cmd_args.extend(["-ob", f"{name}=0x{value:X}"])
+
+    run_cli(cmd_args)
+
+
 def read_ob(connection: str, register_name: str) -> str:
     """Read option byte register."""
     print(f"Reading OB: {register_name}")
@@ -144,53 +161,44 @@ def read_ob(connection: str, register_name: str) -> str:
     return ((proc.stdout or "") + "\n" + (proc.stderr or ""))
 
 
-def pack_start_end(start: int, end: int) -> int:
-    """Pack watermark start/end into register value."""
-    return ((end & 0xFF) << 16) | (start & 0xFF)
-
-
-def pack_secboot(lock: int, secbootadd: int) -> int:
-    """Pack SECBOOT_LOCK and secure boot address into register value."""
-    return ((secbootadd & 0x00FFFFFF) << 8) | (lock & 0xFF)
-
-
 def program_option_bytes_step1(connection: str) -> None:
     """
     Program critical option bytes that affect memory mapping.
     Must be done before firmware programming.
-    - FLASH_OPTSR2: Enable TrustZone (TZEN=0xB4)
-    - FLASH_SECBOOTR: Secure boot address (0xC0000) + unlocked (0xC3)
-    - FLASH_SECWM1R/2R: Secure watermarks disabled
+    - TZEN: Enable TrustZone (0xB4)
+    - SECBOOTADD: Secure boot address (0xC0000)
+    - SECBOOT_LOCK: Unlocked (0xC3) to allow programming
+    - SECWM1/2: Secure watermarks disabled
     """
     print("Programming option bytes step 1 (TrustZone + secure boot config)...")
 
-    # TZEN=0xB4 enables TrustZone
-    # SRAM1_3_RST=1, SRAM3_ECC=1, SRAM2_ECC=0, BKPRAM_ECC=1
-    write_ob(connection, "FLASH_OPTSR2", 0xB4000034)
-
-    # Secure boot at 0xC0000, unlocked (0xC3) to allow programming
-    write_ob(connection, "FLASH_SECBOOTR", pack_secboot(0xC3, 0xC0000))
-
-    # Disable secure watermarks (start=0x7F > end=0x00 means disabled)
-    write_ob(connection, "FLASH_SECWM1R", pack_start_end(0x7F, 0x00))
-    write_ob(connection, "FLASH_SECWM2R", pack_start_end(0x7F, 0x00))
+    write_obs(connection, {
+        "TZEN": 0xB4,           # Enable TrustZone
+        "SECBOOTADD": 0xC0000,  # Secure boot address
+        "SECBOOT_LOCK": 0xC3,   # Unlocked to allow programming
+        "SECWM1_STRT": 0x7F,    # Disable secure watermarks bank 1
+        "SECWM1_END": 0x00,
+        "SECWM2_STRT": 0x7F,    # Disable secure watermarks bank 2
+        "SECWM2_END": 0x00,
+    })
 
 
 def program_option_bytes_step2(connection: str) -> None:
     """
     Program additional option bytes after firmware is flashed.
-    - FLASH_WRP1R/2R: Write protection disabled
-    - FLASH_HDP1R/2R: Hide protection disabled
+    - WRPSGn1/2: Write protection disabled
+    - HDP1/2: Hide protection disabled
     """
     print("Programming option bytes step 2 (write/hide protection)...")
 
-    # Disable write protection
-    write_ob(connection, "FLASH_WRP1R", 0xFFFFFFFF)
-    write_ob(connection, "FLASH_WRP2R", 0xFFFFFFFF)
-
-    # Disable hide protection (start=0x7F > end=0x00 means disabled)
-    write_ob(connection, "FLASH_HDP1R", pack_start_end(0x7F, 0x00))
-    write_ob(connection, "FLASH_HDP2R", pack_start_end(0x7F, 0x00))
+    write_obs(connection, {
+        "WRPSGn1": 0xFFFFFFFF,  # Disable write protection bank 1
+        "WRPSGn2": 0xFFFFFFFF,  # Disable write protection bank 2
+        "HDP1_STRT": 0x7F,      # Disable hide protection bank 1
+        "HDP1_END": 0x00,
+        "HDP2_STRT": 0x7F,      # Disable hide protection bank 2
+        "HDP2_END": 0x00,
+    })
 
 
 def program_option_bytes_secure_boot_lock(connection: str) -> None:
@@ -198,8 +206,9 @@ def program_option_bytes_secure_boot_lock(connection: str) -> None:
     Lock the secure boot register after firmware is programmed.
     Changes SECBOOT_LOCK from 0xC3 (unlocked) to 0xB4 (locked).
     """
+    return # skip ths for now. We don't want to lock it
     print("Locking secure boot option byte...")
-    # write_ob(connection, "FLASH_SECBOOTR", pack_secboot(0xB4, 0xC0000))
+    write_ob(connection, "SECBOOT_LOCK", 0xB4)
 
 def program_obk(connection: str, obk: Path) -> None:
     run_cli(["-c", connection, "-sdp", str(obk)])
