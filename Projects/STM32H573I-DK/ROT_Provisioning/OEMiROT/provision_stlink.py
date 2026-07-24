@@ -250,7 +250,6 @@ def _set_xml_output_value(root: ET.Element, output_name: str, value: str) -> Non
             return
     raise RuntimeError(f"Output '{output_name}' not found in XML template")
 
-
 def create_temp_signed_image_xml(
     base_xml: Path,
     firmware_input_hex: Path,
@@ -259,12 +258,6 @@ def create_temp_signed_image_xml(
     header_size: int = 0x400,
 ) -> Path:
     """Create a temporary XML with updated input/output/offset for TPC signing."""
-    # Register XML namespaces to preserve them when writing
-    ET.register_namespace('xsi', 'http://www.w3.org/2001/XMLSchema-instance')
-
-    tree = ET.parse(base_xml)
-    root = tree.getroot()
-
     app_start_address = read_min_address_from_intel_hex(firmware_input_hex)
     exec_offset = app_start_address - header_size
     if exec_offset < 0:
@@ -273,12 +266,60 @@ def create_temp_signed_image_xml(
             f"header=0x{header_size:X}"
         )
 
-    _set_xml_param_value(root, "Firmware binary input file", str(firmware_input_hex))
-    _set_xml_param_value(root, "Firmware execution area offset", f"0x{exec_offset:X}")
-    _set_xml_output_value(root, "Image output file", str(image_output_hex))
+    # Read the base XML and perform string replacements
+    # This preserves the exact XML format TPC expects
+    xml_content = base_xml.read_text(encoding="utf-8")
 
-    # Write XML with proper formatting for TPC tool
-    tree.write(output_xml, encoding="utf-8", xml_declaration=True, method="xml")
+    # Ensure we have absolute paths for TPC
+    firmware_input_abs = firmware_input_hex.resolve()
+    image_output_abs = image_output_hex.resolve()
+
+    # Resolve LinkedXML path (../Config/OEMiRoT_Config.xml) to absolute
+    linked_xml_abs = (base_xml.parent / "../Config/OEMiRoT_Config.xml").resolve()
+
+    # Find and replace the three values we need to update
+    import re
+
+    # Replace firmware input file path
+    xml_content = re.sub(
+        r'(<Name>Firmware binary input file</Name>\s*<Value>)[^<]*(</Value>)',
+        rf'\g<1>{str(firmware_input_abs)}\g<2>',
+        xml_content,
+        flags=re.DOTALL
+    )
+
+    # Replace execution offset
+    xml_content = re.sub(
+        r'(<Name>Firmware execution area offset</Name>\s*<Value>)[^<]*(</Value>)',
+        rf'\g<1>0x{exec_offset:X}\g<2>',
+        xml_content,
+        flags=re.DOTALL
+    )
+
+    # Replace LinkedXML path with absolute path
+    xml_content = re.sub(
+        r'(<LinkedXML>)[^<]*(</LinkedXML>)',
+        rf'\g<1>{str(linked_xml_abs)}\g<2>',
+        xml_content,
+        flags=re.DOTALL
+    )
+
+    # Replace output file path
+    xml_content = re.sub(
+        r'(<Name>Image output file</Name>\s*<Value>)[^<]*(</Value>)',
+        rf'\g<1>{str(image_output_abs)}\g<2>',
+        xml_content,
+        flags=re.DOTALL
+    )
+
+    output_xml.write_text(xml_content, encoding="utf-8")
+
+    # TEMPORARY: Save a copy to Downloads for inspection
+    # import shutil
+    # debug_xml = Path.home() / "Downloads" / "OEMiROT_S_Code_Init_Image_DEBUG.xml"
+    # shutil.copy2(output_xml, debug_xml)
+    # print(f"DEBUG: XML saved to {debug_xml}")
+
     return output_xml
 
 
