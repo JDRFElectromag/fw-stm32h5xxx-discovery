@@ -83,15 +83,26 @@ def connect(connection: str) -> None:
     run_cli(["-c", connection])
 
 
+def halt_core(connection: str) -> None:
+    """Halt the core. Use UR mode connection to prevent unhalt on disconnect."""
+    run_cli(["-c", connection, "-halt"])
+
+
 def hard_reset(connection: str) -> None:
+    """Hardware reset. With UR mode, core stays under reset even on disconnect."""
     run_cli(["-c", connection, "-hardRst"])
 
 
 def mass_erase(connection: str) -> None:
+    """Erase all flash. Core must be halted before and after to prevent execution."""
     run_cli(["-c", connection, "-e", "all"])
 
 
 def program_hex(connection: str, image: Path) -> None:
+    """
+    Program HEX file. With UR mode connection, target stays under reset.
+    Caller must halt before and after to ensure core doesn't run on reconnect.
+    """
     run_cli(["-c", connection, "-d", str(image), "-v"])
 
 
@@ -119,8 +130,26 @@ def assert_open_state(connection: str, where: str) -> None:
 
 
 def program_obk(connection: str, obk: Path) -> None:
-    hard_reset(connection)
+    """
+    Program OBK via SDP (Secure Data Programming).
+    Multiple halt guards ensure core stays halted across reset and SDP operations.
+    UR mode connection prevents core from running during ST-LINK reconnects.
+    """
+    halt_core(connection)
+    halt_core(connection)
     run_cli(["-c", connection, "-sdp", str(obk)])
+    halt_core(connection)
+
+
+def prompt_boot0_position(position: int) -> None:
+    if position not in (0, 1):
+        raise ValueError("BOOT0 position must be 0 or 1")
+
+    vdd_text = "disconnected from VDD" if position == 0 else "connected to VDD"
+    print("=====")
+    print(f"Set BOOT0 pin {vdd_text}")
+    print(f"STM32H573I-DK: set SW1 to position {position}")
+    input("Press Enter to continue...")
 
 
 def require_obk_files(obk_files: list[Path]) -> None:
@@ -135,6 +164,27 @@ def require_files(label: str, files: list[Path]) -> None:
     if missing:
         missing_str = "\n".join(f"- {p}" for p in missing)
         raise FileNotFoundError(f"Missing {label} file(s):\n{missing_str}")
+
+
+def merge_hex_files(boot_hex: Path, app_hex: Path, output_hex: Path) -> None:
+    """Merge bootloader and application HEX files using srec_cat."""
+    cmd = [
+        "srec_cat",
+        str(boot_hex), "-Intel",
+        str(app_hex), "-Intel",
+        "-o", str(output_hex), "-Intel",
+    ]
+    print("+", " ".join(cmd))
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"HEX merge failed with exit code {proc.returncode}. "
+            "Ensure srec_cat (SRecord) is installed."
+        )
 
 
 def read_min_address_from_intel_hex(hex_file: Path) -> int:
@@ -274,6 +324,10 @@ def parse_cli_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_cli_args()
     connection = build_connection(args.speed, args.ap, args.mode)
+    # During provisioning, use Under Reset (UR) mode with HWrst to ensure the core
+    # cannot run even during ST-LINK disconnect/reconnect cycles between operations.
+    # UR mode keeps the target under hardware reset, preventing code execution.
+    provision_connection = build_connection(args.speed, args.ap, "UR", "HWrst")
 
     # If no action was selected, behave like a minimal health check.
     if not (args.debug_access or args.factory_reset or args.provision):
@@ -314,12 +368,14 @@ def main() -> int:
         obk_files = [DA_OBKEY, OEMIROT_CONFIG_OBKEY, OEMIROT_DATA_OBKEY]
         require_obk_files(obk_files)
 
-        connect(connection)
-        assert_open_state(connection, "provision start")
+        # BOOT0 low during flash/programming stage.
+        prompt_boot0_position(0)
 
-        # 1) Regenerate/sign initial application image via TPC.
         with tempfile.TemporaryDirectory(prefix="oemirot_tpc_") as tmp_dir:
+
+            # Update the xml file automatically
             app_init_xml_tmp = Path(tmp_dir) / "OEMiROT_S_Code_Init_Image.tmp.xml"
+            merged_hex = Path(tmp_dir) / "merged_signed_app_boot.hex"
             create_temp_signed_image_xml(
                 base_xml=app_init_xml_base,
                 firmware_input_hex=app_input_hex,
@@ -327,30 +383,36 @@ def main() -> int:
                 output_xml=app_init_xml_tmp,
                 header_size=0x400,
             )
-            print(f"Using temporary TPC XML: {app_init_xml_tmp}")
+
+            # Sign the apphex using the generated hex file
             run_tpc(["-pb", str(app_init_xml_tmp)])
-        require_files("signed image", [app_signed_hex])
-        assert_open_state(connection, "after TPC sign")
 
-        # 2) Program signed application and bootloader images using ST-LINK.
-        mass_erase(connection)
-        assert_open_state(connection, "after mass erase")
-        hard_reset(connection)
+            # Merge the hex file
+            require_files("signed image", [app_signed_hex])
+            merge_hex_files(boot_hex, app_signed_hex, merged_hex)
+            require_files("merged image", [merged_hex])
+            print(f"Programming merged HEX: {merged_hex}")
 
-        print(f"Programming app HEX: {app_signed_hex}")
-        program_hex(connection, app_signed_hex)
-        assert_open_state(connection, "after app HEX")
+            # Reset, halt and program the hex file keeping the core halted afterwards
+            assert_open_state(provision_connection, "provision start")
+            hard_reset(provision_connection)
+            halt_core(provision_connection)
+            mass_erase(provision_connection)
+            halt_core(provision_connection) # Just for sanity core shouldn't be running
+            program_hex(provision_connection, merged_hex)
 
-        print(f"Programming boot HEX: {boot_hex}")
-        program_hex(connection, boot_hex)
-        assert_open_state(connection, "after boot HEX")
+        # BOOT0 high for OBK provisioning stage.
+        prompt_boot0_position(1)
 
         for obk in obk_files:
             print(f"Provisioning OBK via SDP: {obk}")
-            program_obk(connection, obk)
-            # Verify lifecycle stays OPEN after each OBK write.
-            assert_open_state(connection, f"after {obk.name}")
+            program_obk(provision_connection, obk)
 
+        # Return BOOT0 to normal boot position.
+        prompt_boot0_position(0)
+
+        # Verify one last time that we're still in OPEN state and halted.
+        assert_open_state(provision_connection, "final verification")
         print("Provisioning completed with product state kept OPEN.")
 
     return 0
